@@ -20,7 +20,7 @@ import {
 } from "@heroicons/react/24/outline";
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const APP_VERSION = "1.4";
+const APP_VERSION = "1.4.1";
 
 // ── CLIENTE SUPABASE SINGLETON ────────────────────────────────────────────────
 const supabase = createClient(
@@ -482,7 +482,7 @@ const css = `
   .tv-hint strong { color: ${G.text}; }
 
   /* layout */
-  .tv-layout { display: flex; height: 100vh; overflow: hidden; }
+  .tv-layout { display: flex; height: 100vh; overflow: hidden; max-width: 100vw; }
 
   /* sidebar */
   .tv-sidebar {
@@ -856,13 +856,91 @@ const css = `
     margin-bottom: 6px;
   }
 
+  /* ── MOBILE DRAWER ── */
+  .tv-hamburger {
+    display: none;
+    align-items: center; justify-content: center;
+    width: 36px; height: 36px;
+    background: ${G.surface};
+    border: 1px solid ${G.border2};
+    border-radius: 9px;
+    cursor: pointer;
+    color: ${G.text};
+    flex-shrink: 0;
+  }
+  .tv-drawer-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 200;
+  }
+  .tv-drawer-overlay.open { display: block; }
+  .tv-drawer {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: 260px;
+    background: ${G.surface};
+    border-right: 1px solid ${G.border2};
+    z-index: 201;
+    display: flex; flex-direction: column;
+    padding: 20px 0;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+  }
+  .tv-drawer.open { transform: translateX(0); }
+
   @media (max-width: 700px) {
+    /* ocultar sidebar desktop, mostrar hamburguesa */
     .tv-sidebar { display: none; }
-    .tv-stats { grid-template-columns: repeat(2, 1fr); }
+    .tv-hamburger { display: flex; }
+
+    /* layout sin desbordamiento */
+    .tv-root { overflow-x: hidden; }
+    .tv-layout { overflow-x: hidden; }
+    .tv-main { overflow-x: hidden; min-width: 0; }
+
+    /* topbar */
+    .tv-topbar { padding: 12px 12px 0; gap: 8px; }
+    .tv-topbar-btn { padding: 8px 10px; font-size: 12px; }
+
+    /* contenido */
+    .tv-content { padding: 12px 12px 20px; }
+
+    /* stats: 2 columnas */
+    .tv-stats { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px; }
+    .tv-stat { padding: 12px; }
+    .tv-stat-val { font-size: 22px; }
+
+    /* bottom grid: 1 columna */
     .tv-bottom-grid { grid-template-columns: 1fr; }
+
+    /* ocultar elementos que desbordan en cards */
     .tv-masked { display: none; }
-    .tv-topbar { padding: 14px 16px 0; }
-    .tv-content { padding: 14px 16px 20px; }
+    .tv-type-badge { display: none; }
+
+    /* cards más compactas */
+    .tv-secret-card { padding: 10px 12px; gap: 10px; }
+
+    /* modal: pantalla completa en móvil */
+    .tv-overlay { padding: 0; align-items: flex-end; }
+    .tv-modal {
+      max-width: 100%;
+      border-radius: 16px 16px 0 0;
+      max-height: 92vh;
+      padding: 20px 16px;
+    }
+
+    /* colecciones: 2 columnas */
+    .tv-col-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+
+    /* search input no desborde */
+    .tv-search { min-width: 0; }
+    .tv-search input { min-width: 0; width: 100%; }
+
+    /* input-row apilado */
+    .tv-input-row { flex-direction: column; }
+
+    /* audit rows wrap */
+    .tv-audit-full-row { flex-wrap: wrap; }
   }
 `;
 
@@ -1567,6 +1645,7 @@ export default function TeamVaultApp() {
   const [collections, setCollections] = useState([]);
   const [secrets, setSecrets] = useState([]);
   const [audit, setAudit] = useState([]);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const toastTimer = useRef(null);
 
   const showToast = useCallback((msg) => {
@@ -1584,7 +1663,6 @@ export default function TeamVaultApp() {
     setTick(t => t + 1);
   }, [user]);
 
-  // Cargar datos cuando el usuario hace login
   useEffect(() => {
     if (!user) return;
     setDataReady(false);
@@ -1593,7 +1671,6 @@ export default function TeamVaultApp() {
       setSecrets([..._store.secrets]);
       setAudit([..._store.audit]);
       setDataReady(true);
-      // Pedir clave maestra al entrar
       if (!_cryptoKey) setShowMasterKey(true);
     });
   }, [user]);
@@ -1603,6 +1680,53 @@ export default function TeamVaultApp() {
     { id: "collections", icon: "📁", label: "Colecciones" },
     { id: "audit", icon: "📋", label: "Auditoría" },
   ];
+
+  const navigateTo = (id) => { setPage(id); setDrawerOpen(false); };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    _cryptoKey = null;
+    setUser(null);
+    setDrawerOpen(false);
+  };
+
+  // Contenido del panel de navegación (reutilizado en sidebar y drawer)
+  const NavContent = () => (
+    <>
+      <div className="tv-sidebar-logo">
+        <div className="tv-sidebar-logo-icon">🔐</div>
+        <div className="tv-sidebar-logo-txt">TeamVault</div>
+      </div>
+      <div className="tv-nav-section">
+        <div className="tv-nav-label">Menú</div>
+        {NAV.map(n => (
+          <div key={n.id} className={`tv-nav-item ${page === n.id ? "active" : ""}`} onClick={() => navigateTo(n.id)}>
+            <span className="nav-icon">{n.icon}</span>
+            {n.label}
+            {n.id === "audit" && audit.length > 0 && <span className="tv-nav-badge">{audit.length}</span>}
+          </div>
+        ))}
+      </div>
+      <div className="tv-sidebar-bottom">
+        <div className="tv-user-chip">
+          <div className="tv-avatar">{user.name.slice(0,2).toUpperCase()}</div>
+          <div>
+            <div className="tv-avatar-name">{user.name}</div>
+            <div className="tv-avatar-role">{user.email}</div>
+          </div>
+        </div>
+        <div className="tv-enc-badge" style={{ cursor: "pointer" }} onClick={() => { setShowMasterKey(true); setDrawerOpen(false); }}>
+          {_cryptoKey ? <><LockClosedIcon style={{ width: 12, height: 12 }} /> AES-256-GCM activo</> : <><LockOpenIcon style={{ width: 12, height: 12 }} /> Sin clave maestra</>}
+        </div>
+        <div className="tv-nav-item" style={{ marginTop: 6, color: G.accent }} onClick={handleSignOut}>
+          <span className="nav-icon"><ArrowRightStartOnRectangleIcon style={{ width: 16, height: 16 }} /></span> Cerrar sesión
+        </div>
+        <div style={{ padding: "8px 10px 0", fontSize: 10, color: G.accent, opacity: 0.5, letterSpacing: "0.04em" }}>
+          v{APP_VERSION}
+        </div>
+      </div>
+    </>
+  );
 
   if (!user) return (
     <>
@@ -1624,47 +1748,36 @@ export default function TeamVaultApp() {
             onSkip={() => setShowMasterKey(false)}
           />
         )}
+
+        {/* Drawer móvil */}
+        <div className={`tv-drawer-overlay ${drawerOpen ? "open" : ""}`} onClick={() => setDrawerOpen(false)} />
+        <nav className={`tv-drawer ${drawerOpen ? "open" : ""}`}>
+          <NavContent />
+        </nav>
+
         <div className="tv-layout">
+          {/* Sidebar desktop */}
           <nav className="tv-sidebar">
-            <div className="tv-sidebar-logo">
-              <div className="tv-sidebar-logo-icon">🔐</div>
-              <div className="tv-sidebar-logo-txt">TeamVault</div>
-            </div>
-            <div className="tv-nav-section">
-              <div className="tv-nav-label">Menú</div>
-              {NAV.map(n => (
-                <div key={n.id} className={`tv-nav-item ${page === n.id ? "active" : ""}`} onClick={() => setPage(n.id)}>
-                  <span className="nav-icon">{n.icon}</span>
-                  {n.label}
-                  {n.id === "audit" && audit.length > 0 && <span className="tv-nav-badge">{audit.length}</span>}
-                </div>
-              ))}
-            </div>
-            <div className="tv-sidebar-bottom">
-              <div className="tv-user-chip">
-                <div className="tv-avatar">{user.name.slice(0,2).toUpperCase()}</div>
-                <div>
-                  <div className="tv-avatar-name">{user.name}</div>
-                  <div className="tv-avatar-role">{user.email}</div>
-                </div>
-              </div>
-              <div className="tv-enc-badge" style={{ cursor: "pointer" }} onClick={() => setShowMasterKey(true)}>
-                {_cryptoKey ? <><LockClosedIcon style={{ width: 12, height: 12 }} /> AES-256-GCM activo</> : <><LockOpenIcon style={{ width: 12, height: 12 }} /> Sin clave maestra</>}
-              </div>
-              <div className="tv-nav-item" style={{ marginTop: 6, color: G.accent }} onClick={async () => {
-                await supabase.auth.signOut();
-                _cryptoKey = null;
-                setUser(null);
-              }}>
-                <span className="nav-icon"><ArrowRightStartOnRectangleIcon style={{ width: 16, height: 16 }} /></span> Cerrar sesión
-              </div>
-              <div style={{ padding: "8px 10px 0", fontSize: 10, color: G.accent, opacity: 0.5, letterSpacing: "0.04em" }}>
-                v{APP_VERSION}
-              </div>
-            </div>
+            <NavContent />
           </nav>
 
           <main className="tv-main">
+            {/* Topbar con hamburguesa en móvil */}
+            {dataReady && (
+              <div style={{ display: "flex", alignItems: "center", padding: "12px 12px 0", gap: 8 }}>
+                <button className="tv-hamburger" onClick={() => setDrawerOpen(true)} aria-label="Menú">
+                  <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
+                    <rect y="0" width="18" height="2" rx="1" fill="currentColor"/>
+                    <rect y="6" width="18" height="2" rx="1" fill="currentColor"/>
+                    <rect y="12" width="18" height="2" rx="1" fill="currentColor"/>
+                  </svg>
+                </button>
+                <span style={{ fontSize: 13, fontWeight: 600, color: G.muted }}>
+                  {NAV.find(n => n.id === page)?.icon} {NAV.find(n => n.id === page)?.label}
+                </span>
+              </div>
+            )}
+
             {!dataReady ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, color: G.muted, fontSize: 14 }}>
                 Cargando datos de Supabase...
