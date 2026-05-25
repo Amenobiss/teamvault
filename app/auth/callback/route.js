@@ -2,10 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-const ALLOWED_EMAILS = [
-  "amenobis@gmail.com",      // ← pon aquí los emails del equipo
-  "dummyhardwares@gmail.com",
-];
+const ALLOWED_EMAILS = process.env.ALLOWED_EMAILS?.split(",").map(e => e.trim()) ?? [];
 
 export async function GET(request) {
   const { searchParams, origin } = new URL(request.url);
