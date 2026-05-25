@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const APP_VERSION = "1.4.2";
+const APP_VERSION = "1.4.3";
 
 // ── CLIENTE SUPABASE SINGLETON ────────────────────────────────────────────────
 const supabase = createClient(
