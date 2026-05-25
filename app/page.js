@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
+// ── VERSION ───────────────────────────────────────────────────────────────────
+const APP_VERSION = "1.2";
+
 // ── CLIENTE SUPABASE SINGLETON ────────────────────────────────────────────────
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -1468,6 +1471,9 @@ export default function TeamVaultApp() {
                 setUser(null);
               }}>
                 <span className="nav-icon">🚪</span> Cerrar sesión
+              </div>
+              <div style={{ padding: "8px 10px 0", fontSize: 10, color: G.muted, opacity: 0.5, letterSpacing: "0.04em" }}>
+                v{APP_VERSION}
               </div>
             </div>
           </nav>
