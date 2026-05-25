@@ -16,6 +16,7 @@ import {
   CheckIcon,
   CloudArrowUpIcon,
   ShieldCheckIcon,
+  FingerPrintIcon,
 } from "@heroicons/react/24/outline";
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
@@ -75,6 +76,80 @@ let _store = { collections: [], secrets: [], audit: [] };
 async function initCrypto(master) {
   _cryptoKey = await crypto_engine.deriveKey(master, SALT);
 }
+
+// ── WEBAUTHN / PASSKEY ENGINE ─────────────────────────────────────────────────
+const PASSKEY_LS_KEY   = "tv_passkey_enc";
+const PASSKEY_CRED_KEY = "tv_passkey_cred";
+
+const passkey = {
+  isSupported() {
+    return !!(window.PublicKeyCredential &&
+      navigator.credentials?.create &&
+      navigator.credentials?.get);
+  },
+  isRegistered() {
+    return !!(localStorage.getItem(PASSKEY_LS_KEY) && localStorage.getItem(PASSKEY_CRED_KEY));
+  },
+  _b64url(buf) {
+    return btoa(String.fromCharCode(...new Uint8Array(buf)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  },
+  _fromB64url(str) {
+    str = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (str.length % 4) str += "=";
+    return Uint8Array.from(atob(str), c => c.charCodeAt(0));
+  },
+  async _deriveWrapKey(rawId) {
+    const km = await window.crypto.subtle.importKey("raw", rawId, "PBKDF2", false, ["deriveKey"]);
+    return window.crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: new TextEncoder().encode("tv-passkey-wrap-v1"), iterations: 100000, hash: "SHA-256" },
+      km, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+    );
+  },
+  async register(masterPassword, userName) {
+    const challenge = window.crypto.getRandomValues(new Uint8Array(32));
+    const userId    = window.crypto.getRandomValues(new Uint8Array(16));
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: "TeamVault", id: window.location.hostname },
+        user: { id: userId, name: userName, displayName: userName },
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" },
+        timeout: 60000,
+      },
+    });
+    const rawId   = new Uint8Array(cred.rawId);
+    const wrapKey = await this._deriveWrapKey(rawId);
+    const iv      = window.crypto.getRandomValues(new Uint8Array(12));
+    const ct      = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, wrapKey, new TextEncoder().encode(masterPassword));
+    const combined = new Uint8Array(iv.byteLength + ct.byteLength);
+    combined.set(iv, 0); combined.set(new Uint8Array(ct), iv.byteLength);
+    localStorage.setItem(PASSKEY_LS_KEY,   btoa(String.fromCharCode(...combined)));
+    localStorage.setItem(PASSKEY_CRED_KEY, this._b64url(cred.rawId));
+  },
+  async unlock() {
+    const credIdB64 = localStorage.getItem(PASSKEY_CRED_KEY);
+    const encB64    = localStorage.getItem(PASSKEY_LS_KEY);
+    if (!credIdB64 || !encB64) throw new Error("No hay passkey registrada");
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge: window.crypto.getRandomValues(new Uint8Array(32)),
+        allowCredentials: [{ type: "public-key", id: this._fromB64url(credIdB64) }],
+        userVerification: "required",
+        timeout: 60000,
+      },
+    });
+    const wrapKey = await this._deriveWrapKey(new Uint8Array(assertion.rawId));
+    const combined = Uint8Array.from(atob(encB64), c => c.charCodeAt(0));
+    const plain   = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: combined.slice(0, 12) }, wrapKey, combined.slice(12));
+    return new TextDecoder().decode(plain);
+  },
+  clear() {
+    localStorage.removeItem(PASSKEY_LS_KEY);
+    localStorage.removeItem(PASSKEY_CRED_KEY);
+  },
+};
 
 // ── COLECCIONES ───────────────────────────────────────────────────────────────
 async function loadCollections(userId) {
@@ -1094,16 +1169,47 @@ function SecretCard({ secret, collections, onSelect, onEdit, onToast, onDelete, 
 }
 
 // ── MASTER KEY MODAL ──────────────────────────────────────────────────────────
-function MasterKeyModal({ onUnlock, onSkip }) {
+function MasterKeyModal({ onUnlock, onSkip, userName }) {
   const [master, setMaster] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [passkeySupported]  = useState(() => typeof window !== "undefined" && passkey.isSupported());
+  const [passkeyRegistered, setPasskeyRegistered] = useState(() => typeof window !== "undefined" && passkey.isRegistered());
+  const [showManual, setShowManual] = useState(false);
+
+  // Si hay passkey registrada, intentar desbloquear automáticamente al montar
+  useEffect(() => {
+    if (passkeyRegistered) handlePasskeyUnlock();
+  }, []);
+
+  const handlePasskeyUnlock = async () => {
+    setLoading(true); setErr("");
+    try {
+      const master = await passkey.unlock();
+      await initCrypto(master);
+      onUnlock();
+    } catch (e) {
+      // El usuario canceló o falló la biometría → mostrar formulario manual
+      setShowManual(true);
+      setErr("Verificación biométrica cancelada. Introduce la clave manualmente.");
+    }
+    setLoading(false);
+  };
 
   const handleUnlock = async () => {
     if (master.length < 4) { setErr("Mínimo 4 caracteres"); return; }
-    setLoading(true);
+    setLoading(true); setErr("");
     try {
       await initCrypto(master);
+      // Si WebAuthn disponible y no registrado, ofrecer registrar passkey
+      if (passkeySupported && !passkeyRegistered) {
+        try {
+          await passkey.register(master, userName || "usuario");
+          setPasskeyRegistered(true);
+        } catch {
+          // Registro opcional, no bloquear si falla o cancela
+        }
+      }
       onUnlock();
     } catch (e) {
       setErr("Error al inicializar la clave");
@@ -1111,11 +1217,57 @@ function MasterKeyModal({ onUnlock, onSkip }) {
     setLoading(false);
   };
 
+  const handleForgetPasskey = () => {
+    passkey.clear();
+    setPasskeyRegistered(false);
+    setShowManual(true);
+    setErr("");
+  };
+
+  // Vista: passkey registrada y no se ha pedido manual
+  if (passkeyRegistered && !showManual) {
+    return (
+      <div className="tv-overlay">
+        <div className="tv-modal" style={{ textAlign: "center" }}>
+          <div className="tv-modal-title" style={{ justifyContent: "center", display: "flex", alignItems: "center", gap: 8 }}>
+            <FingerPrintIcon style={{ width: 22, height: 22 }} /> Desbloquear Vault
+          </div>
+          <div className="tv-modal-sub">Usa tu huella, Face ID o PIN del dispositivo</div>
+          {loading ? (
+            <div style={{ color: G.muted, fontSize: 13, padding: "24px 0" }}>Esperando verificación biométrica...</div>
+          ) : (
+            <>
+              <button className="tv-btn" onClick={handlePasskeyUnlock} style={{ marginBottom: 10 }}>
+                <FingerPrintIcon style={{ width: 16, height: 16, display: "inline", marginRight: 8 }} />
+                Verificar identidad
+              </button>
+              <button className="tv-btn tv-btn-ghost" onClick={onSkip} style={{ marginBottom: 6 }}>Solo ver</button>
+            </>
+          )}
+          {err && <div className="tv-error" style={{ marginTop: 8 }}><ExclamationTriangleIcon style={{ width: 13, height: 13, display: "inline", marginRight: 4, verticalAlign: "middle" }} />{err}</div>}
+          <div style={{ marginTop: 16 }}>
+            <button onClick={handleForgetPasskey} style={{ background: "none", border: "none", color: G.muted, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>
+              Usar contraseña maestra
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Vista: formulario manual (primera vez o fallback)
   return (
     <div className="tv-overlay">
       <div className="tv-modal">
-        <div className="tv-modal-title"><LockClosedIcon style={{ width: 18, height: 18, display: "inline", marginRight: 8, verticalAlign: "middle" }} />Contraseña maestra</div>
-        <div className="tv-modal-sub">Necesaria para encriptar y desencriptar los secretos. No se almacena en ningún sitio.</div>
+        <div className="tv-modal-title">
+          <LockClosedIcon style={{ width: 18, height: 18, display: "inline", marginRight: 8, verticalAlign: "middle" }} />
+          Contraseña maestra
+        </div>
+        <div className="tv-modal-sub">
+          {passkeySupported && !passkeyRegistered
+            ? "Al desbloquear, podrás activar el acceso biométrico para la próxima vez."
+            : "Necesaria para encriptar y desencriptar los secretos."}
+        </div>
         <div className="tv-field">
           <div className="tv-label">Contraseña maestra del equipo</div>
           <input className="tv-input" type="password" placeholder="••••••••••••" value={master}
@@ -1125,9 +1277,21 @@ function MasterKeyModal({ onUnlock, onSkip }) {
         <div className="tv-modal-actions">
           <button className="tv-btn tv-btn-ghost" onClick={onSkip} style={{ padding: "10px", width: "auto", flex: 1 }}>Solo ver</button>
           <button className="tv-btn" onClick={handleUnlock} disabled={loading} style={{ padding: "10px", width: "auto", flex: 2 }}>
-            {loading ? "Derivando clave AES-256..." : <><LockOpenIcon style={{ width: 15, height: 15, display: "inline", marginRight: 6 }} />Desbloquear</>}
+            {loading
+              ? "Procesando..."
+              : passkeySupported && !passkeyRegistered
+                ? <><FingerPrintIcon style={{ width: 15, height: 15, display: "inline", marginRight: 6 }} />Desbloquear y activar biometría</>
+                : <><LockOpenIcon style={{ width: 15, height: 15, display: "inline", marginRight: 6 }} />Desbloquear</>
+            }
           </button>
         </div>
+        {passkeyRegistered && (
+          <div style={{ marginTop: 12, textAlign: "center" }}>
+            <button onClick={handleForgetPasskey} style={{ background: "none", border: "none", color: G.muted, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>
+              Olvidar biometría en este dispositivo
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1455,6 +1619,7 @@ export default function TeamVaultApp() {
       <div className="tv-root">
         {showMasterKey && (
           <MasterKeyModal
+            userName={user?.email || "usuario"}
             onUnlock={() => { setShowMasterKey(false); showToast("✓ Vault desbloqueado"); }}
             onSkip={() => setShowMasterKey(false)}
           />
