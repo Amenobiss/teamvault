@@ -1,0 +1,1471 @@
+"use client";
+
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+// ── CLIENTE SUPABASE SINGLETON ────────────────────────────────────────────────
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
+
+// ── CRYPTO ENGINE (Web Crypto API, zero-knowledge) ───────────────────────────
+const crypto_engine = {
+  async deriveKey(masterPassword, salt) {
+    const enc = new TextEncoder();
+    const keyMaterial = await window.crypto.subtle.importKey(
+      "raw", enc.encode(masterPassword), "PBKDF2", false, ["deriveKey"]
+    );
+    return window.crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: enc.encode(salt), iterations: 100000, hash: "SHA-256" },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  },
+  async encrypt(text, key) {
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const enc = new TextEncoder();
+    const ciphertext = await window.crypto.subtle.encrypt(
+      { name: "AES-GCM", iv }, key, enc.encode(text)
+    );
+    const buf = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+    buf.set(iv, 0);
+    buf.set(new Uint8Array(ciphertext), iv.byteLength);
+    return btoa(String.fromCharCode(...buf));
+  },
+  async decrypt(b64, key) {
+    try {
+      const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const iv = buf.slice(0, 12);
+      const data = buf.slice(12);
+      const plain = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+      return new TextDecoder().decode(plain);
+    } catch { return null; }
+  }
+};
+
+// ── SUPABASE DATA LAYER ───────────────────────────────────────────────────────
+const SALT = "teamvault-org-salt-v1";
+let _cryptoKey = null;
+let _currentUser = null;
+
+// Estado reactivo en memoria (cache local)
+let _store = { collections: [], secrets: [], audit: [] };
+
+async function initCrypto(master) {
+  _cryptoKey = await crypto_engine.deriveKey(master, SALT);
+}
+
+// ── COLECCIONES ───────────────────────────────────────────────────────────────
+async function loadCollections(userId) {
+  // Primero obtenemos las collection_ids a las que pertenece el usuario
+  const { data: memberships } = await supabase
+    .from("collection_members")
+    .select("collection_id")
+    .eq("user_id", userId);
+
+  if (!memberships || memberships.length === 0) {
+    // Si no tiene membresías, cargamos las que creó él (owner)
+    const { data } = await supabase
+      .from("collections")
+      .select("*")
+      .eq("owner_id", userId)
+      .order("created_at", { ascending: true });
+    _store.collections = data || [];
+    return _store.collections;
+  }
+
+  const ids = memberships.map(m => m.collection_id);
+  const { data } = await supabase
+    .from("collections")
+    .select("*")
+    .in("id", ids)
+    .order("created_at", { ascending: true });
+  _store.collections = data || [];
+  return _store.collections;
+}
+
+async function createCollection(name, icon, color, userId) {
+  const { data, error } = await supabase
+    .from("collections")
+    .insert({ name, icon: icon || "📁", color: color || "#7C3AED", owner_id: userId })
+    .select()
+    .single();
+  if (error) throw error;
+
+  // El creador se añade como admin automáticamente
+  await supabase.from("collection_members").insert({
+    collection_id: data.id,
+    user_id: userId,
+    role: "admin",
+    invited_by: userId,
+  });
+
+  await loadCollections(userId);
+  return data;
+}
+
+// ── SECRETOS ──────────────────────────────────────────────────────────────────
+async function loadSecrets(userId) {
+  if (_store.collections.length === 0) {
+    _store.secrets = [];
+    return [];
+  }
+  const colIds = _store.collections.map(c => c.id);
+  const { data, error } = await supabase
+    .from("secrets")
+    .select("*")
+    .in("collection_id", colIds)
+    .order("updated_at", { ascending: false });
+
+  if (error) { console.error("loadSecrets error:", error); _store.secrets = []; return []; }
+
+  // Mapear campos de BD a los que usa la UI (col → collection_id)
+  _store.secrets = (data || []).map(s => ({
+    ...s,
+    col: s.collection_id,
+  }));
+  return _store.secrets;
+}
+
+async function decryptSecret(s) {
+  if (!_cryptoKey) return { ...s, value: "[sin clave maestra]", user: "", notes: "" };
+  const value = await crypto_engine.decrypt(s.enc_value, _cryptoKey);
+  const user  = s.enc_user  ? await crypto_engine.decrypt(s.enc_user,  _cryptoKey) : "";
+  const notes = s.enc_notes ? await crypto_engine.decrypt(s.enc_notes, _cryptoKey) : "";
+  return { ...s, value: value || "[error al desencriptar]", user: user || "", notes: notes || "" };
+}
+
+async function saveSecret(data, userId) {
+  if (!_cryptoKey) throw new Error("No hay clave maestra");
+  const enc_value = await crypto_engine.encrypt(data.value || "", _cryptoKey);
+  const enc_user  = data.user  ? await crypto_engine.encrypt(data.user,  _cryptoKey) : null;
+  const enc_notes = data.notes ? await crypto_engine.encrypt(data.notes, _cryptoKey) : null;
+  const now = new Date().toISOString().split("T")[0];
+
+  const payload = {
+    collection_id: data.col,
+    type: data.type,
+    name: data.name,
+    enc_value,
+    enc_user,
+    enc_notes,
+    updated_at: now,
+    created_by: userId,
+  };
+
+  let result;
+  if (data.id) {
+    // Update
+    const { data: updated, error } = await supabase
+      .from("secrets")
+      .update({ ...payload })
+      .eq("id", data.id)
+      .select()
+      .single();
+    if (error) throw error;
+    result = updated;
+  } else {
+    // Insert
+    const { data: inserted, error } = await supabase
+      .from("secrets")
+      .insert({ ...payload, created_at: now })
+      .select()
+      .single();
+    if (error) throw error;
+    result = inserted;
+  }
+
+  await addAudit(userId, data.id ? "update" : "create", data.name, true);
+  await loadSecrets(userId);
+  return { ...result, col: result.collection_id };
+}
+
+async function deleteSecret(id, userId) {
+  const s = _store.secrets.find(x => x.id === id);
+  const { error } = await supabase.from("secrets").delete().eq("id", id);
+  if (error) throw error;
+  if (s) await addAudit(userId, "delete", s.name, true);
+  await loadSecrets(userId);
+}
+
+// ── AUDITORÍA ─────────────────────────────────────────────────────────────────
+async function loadAudit(userId) {
+  const { data } = await supabase
+    .from("audit_log")
+    .select("*")
+    .order("ts", { ascending: false })
+    .limit(50);
+  _store.audit = data || [];
+  return _store.audit;
+}
+
+async function addAudit(userId, action, target, ok) {
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("audit_log").insert({
+    user_id: userId,
+    user_email: user?.email || "desconocido",
+    action,
+    target_name: target,
+    ok,
+  });
+  // Actualizar cache local sin recargar todo
+  _store.audit.unshift({
+    id: "tmp-" + Date.now(),
+    user_email: user?.email || "desconocido",
+    action,
+    target_name: target,
+    ok,
+    ts: new Date().toISOString(),
+  });
+  if (_store.audit.length > 50) _store.audit.pop();
+}
+
+// ── CARGA INICIAL ─────────────────────────────────────────────────────────────
+async function loadAll(userId) {
+  await loadCollections(userId);
+  await Promise.all([
+    loadSecrets(userId),
+    loadAudit(userId),
+  ]);
+}
+
+// ── TYPE CONFIG ──────────────────────────────────────────────────────────────
+const TYPE_META = {
+  api:        { label: "API Key",     icon: "⚡", color: "#7C3AED", bg: "#EDE9FE" },
+  credential: { label: "Credencial",  icon: "🔑", color: "#0369A1", bg: "#E0F2FE" },
+  config:     { label: "Config",      icon: "⚙️", color: "#059669", bg: "#D1FAE5" },
+  file:       { label: "Documento",   icon: "📄", color: "#B45309", bg: "#FEF3C7" },
+};
+
+// ── HELPERS ──────────────────────────────────────────────────────────────────
+function timeAgo(ts) {
+  const diff = Date.now() - new Date(ts).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "ahora mismo";
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `hace ${h}h`;
+  return `hace ${Math.floor(h / 24)}d`;
+}
+
+function mask(val) {
+  if (!val) return "••••••••";
+  return val.slice(0, 4) + "••••••••" + val.slice(-4);
+}
+
+// ── STYLES ──────────────────────────────────────────────────────────────────
+const G = {
+  bg: "#0F0F13",
+  surface: "#18181F",
+  surface2: "#1E1E28",
+  surface3: "#252530",
+  border: "rgba(255,255,255,0.07)",
+  border2: "rgba(255,255,255,0.12)",
+  text: "#F0EEF8",
+  muted: "#8B8A9E",
+  accent: "#7C5CFC",
+  accentDim: "rgba(124,92,252,0.15)",
+  accentBorder: "rgba(124,92,252,0.4)",
+  danger: "#EF4444",
+  success: "#10B981",
+  warn: "#F59E0B",
+};
+
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  .tv-root {
+    font-family: 'Outfit', sans-serif;
+    background: ${G.bg};
+    color: ${G.text};
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: ${G.border2}; border-radius: 99px; }
+
+  /* login */
+  .tv-login {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: ${G.bg};
+    position: relative;
+    overflow: hidden;
+  }
+  .tv-login::before {
+    content: '';
+    position: absolute;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(124,92,252,0.12) 0%, transparent 70%);
+    top: -100px; left: 50%; transform: translateX(-50%);
+    pointer-events: none;
+  }
+  .tv-login-card {
+    background: ${G.surface};
+    border: 1px solid ${G.border2};
+    border-radius: 20px;
+    padding: 48px 40px;
+    width: 380px;
+    position: relative;
+    z-index: 1;
+  }
+  .tv-login-logo {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 32px;
+  }
+  .tv-login-logo-icon {
+    width: 40px; height: 40px;
+    background: ${G.accent};
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+  .tv-login-logo-name {
+    font-size: 20px; font-weight: 700; letter-spacing: -0.3px;
+  }
+  .tv-login-logo-sub {
+    font-size: 11px; color: ${G.muted}; font-weight: 400;
+  }
+  .tv-login h2 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+  .tv-login p { color: ${G.muted}; font-size: 13px; margin-bottom: 28px; }
+  .tv-field { margin-bottom: 14px; }
+  .tv-label { font-size: 12px; color: ${G.muted}; margin-bottom: 6px; font-weight: 500; letter-spacing: 0.02em; }
+  .tv-input {
+    width: 100%;
+    background: ${G.surface2};
+    border: 1px solid ${G.border2};
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: ${G.text};
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .tv-input:focus { border-color: ${G.accent}; }
+  .tv-input::placeholder { color: ${G.muted}; }
+  .tv-btn {
+    width: 100%;
+    background: ${G.accent};
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 11px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+    margin-top: 6px;
+  }
+  .tv-btn:hover { opacity: 0.9; }
+  .tv-btn:active { transform: scale(0.98); }
+  .tv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .tv-btn-ghost {
+    background: ${G.surface2};
+    border: 1px solid ${G.border2};
+    color: ${G.text};
+  }
+  .tv-btn-ghost:hover { background: ${G.surface3}; opacity: 1; }
+  .tv-btn-danger {
+    background: rgba(239,68,68,0.15);
+    border: 1px solid rgba(239,68,68,0.3);
+    color: ${G.danger};
+  }
+  .tv-btn-danger:hover { background: rgba(239,68,68,0.25); opacity:1; }
+
+  .tv-hint {
+    font-size: 11px; color: ${G.muted};
+    background: ${G.surface2};
+    border: 1px solid ${G.border};
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 16px;
+    line-height: 1.6;
+  }
+  .tv-hint strong { color: ${G.text}; }
+
+  /* layout */
+  .tv-layout { display: flex; height: 100vh; overflow: hidden; }
+
+  /* sidebar */
+  .tv-sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: ${G.surface};
+    border-right: 1px solid ${G.border};
+    display: flex;
+    flex-direction: column;
+    padding: 20px 0;
+    overflow-y: auto;
+  }
+  .tv-sidebar-logo {
+    display: flex; align-items: center; gap: 9px;
+    padding: 0 18px 20px;
+    border-bottom: 1px solid ${G.border};
+    margin-bottom: 12px;
+  }
+  .tv-sidebar-logo-icon {
+    width: 32px; height: 32px;
+    background: ${G.accent};
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .tv-sidebar-logo-txt { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
+  .tv-nav-section { padding: 0 10px; margin-bottom: 4px; }
+  .tv-nav-label { font-size: 10px; color: ${G.muted}; letter-spacing: 0.08em; font-weight: 600; padding: 8px 8px 4px; text-transform: uppercase; }
+  .tv-nav-item {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: ${G.muted};
+    font-size: 13px; font-weight: 500;
+    transition: all 0.12s;
+    margin-bottom: 1px;
+  }
+  .tv-nav-item:hover { background: ${G.surface2}; color: ${G.text}; }
+  .tv-nav-item.active { background: ${G.accentDim}; color: ${G.text}; }
+  .tv-nav-item .nav-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+  .tv-nav-badge {
+    margin-left: auto;
+    background: ${G.accent};
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 99px;
+    min-width: 18px;
+    text-align: center;
+  }
+  .tv-sidebar-bottom {
+    margin-top: auto;
+    padding: 12px 10px 0;
+    border-top: 1px solid ${G.border};
+  }
+  .tv-user-chip {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .tv-avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: ${G.accent};
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .tv-avatar-name { font-size: 12px; font-weight: 500; }
+  .tv-avatar-role { font-size: 10px; color: ${G.muted}; }
+  .tv-enc-badge {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16,185,129,0.2);
+    border-radius: 8px;
+    font-size: 11px;
+    color: ${G.success};
+  }
+
+  /* main */
+  .tv-main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+  /* topbar */
+  .tv-topbar {
+    padding: 20px 28px 0;
+    display: flex; align-items: center; gap: 12px;
+    flex-shrink: 0;
+  }
+  .tv-search {
+    flex: 1;
+    display: flex; align-items: center; gap: 8px;
+    background: ${G.surface};
+    border: 1px solid ${G.border2};
+    border-radius: 10px;
+    padding: 9px 14px;
+    transition: border-color 0.15s;
+  }
+  .tv-search:focus-within { border-color: ${G.accentBorder}; }
+  .tv-search input {
+    background: none; border: none; outline: none;
+    color: ${G.text}; font-family: 'Outfit', sans-serif; font-size: 13px;
+    flex: 1; min-width: 0;
+  }
+  .tv-search input::placeholder { color: ${G.muted}; }
+  .tv-topbar-btn {
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 16px;
+    border-radius: 10px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer; border: none;
+    transition: all 0.12s;
+    white-space: nowrap;
+  }
+  .tv-topbar-btn-primary {
+    background: ${G.accent};
+    color: #fff;
+  }
+  .tv-topbar-btn-primary:hover { opacity: 0.88; }
+
+  /* content */
+  .tv-content { padding: 20px 28px 28px; flex: 1; }
+
+  /* stats */
+  .tv-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  .tv-stat {
+    background: ${G.surface};
+    border: 1px solid ${G.border};
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .tv-stat-label { font-size: 11px; color: ${G.muted}; margin-bottom: 6px; font-weight: 500; }
+  .tv-stat-val { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
+  .tv-stat-sub { font-size: 11px; color: ${G.muted}; margin-top: 3px; }
+
+  /* filters */
+  .tv-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .tv-chip {
+    display: flex; align-items: center; gap: 5px;
+    padding: 5px 12px;
+    border-radius: 99px;
+    border: 1px solid ${G.border2};
+    background: transparent;
+    color: ${G.muted};
+    font-family: 'Outfit', sans-serif;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .tv-chip:hover { border-color: ${G.accent}; color: ${G.text}; }
+  .tv-chip.active { background: ${G.accentDim}; border-color: ${G.accentBorder}; color: ${G.text}; }
+
+  /* section header */
+  .tv-section-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .tv-section-title { font-size: 13px; font-weight: 600; color: ${G.muted}; letter-spacing: 0.04em; text-transform: uppercase; }
+
+  /* secret cards */
+  .tv-secret-card {
+    display: flex; align-items: center; gap: 14px;
+    background: ${G.surface};
+    border: 1px solid ${G.border};
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: all 0.12s;
+    position: relative;
+    overflow: hidden;
+  }
+  .tv-secret-card:hover { border-color: ${G.border2}; background: ${G.surface2}; }
+  .tv-secret-card.selected { border-color: ${G.accentBorder}; background: ${G.accentDim}; }
+  .tv-type-icon {
+    width: 36px; height: 36px;
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .tv-secret-name { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tv-secret-meta { font-size: 11px; color: ${G.muted}; margin-top: 2px; }
+  .tv-type-badge {
+    font-size: 10px; font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 99px;
+    flex-shrink: 0;
+  }
+  .tv-masked {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px; color: ${G.muted};
+    background: ${G.surface2};
+    padding: 4px 10px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tv-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .tv-icon-btn {
+    width: 30px; height: 30px;
+    background: ${G.surface2};
+    border: 1px solid ${G.border2};
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: ${G.muted};
+    font-size: 14px;
+    transition: all 0.12s;
+    flex-shrink: 0;
+  }
+  .tv-icon-btn:hover { background: ${G.surface3}; color: ${G.text}; border-color: ${G.border2}; }
+
+  /* bottom grid */
+  .tv-bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 20px; }
+  .tv-panel {
+    background: ${G.surface};
+    border: 1px solid ${G.border};
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .tv-panel-title { font-size: 12px; font-weight: 600; color: ${G.muted}; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+  .tv-member-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid ${G.border};
+  }
+  .tv-member-row:last-child { border-bottom: none; }
+  .tv-member-name { font-size: 13px; font-weight: 500; flex: 1; }
+  .tv-role { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+  .tv-role-admin { background: rgba(124,92,252,0.15); color: #A78BFA; }
+  .tv-role-editor { background: rgba(3,105,161,0.15); color: #60A5FA; }
+  .tv-role-viewer { background: rgba(255,255,255,0.06); color: ${G.muted}; }
+
+  .tv-audit-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid ${G.border};
+  }
+  .tv-audit-row:last-child { border-bottom: none; }
+  .tv-audit-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+  .tv-audit-text { font-size: 12px; color: ${G.muted}; line-height: 1.5; }
+  .tv-audit-user { color: ${G.text}; font-weight: 600; }
+  .tv-audit-time { font-size: 10px; color: ${G.muted}; margin-top: 2px; }
+
+  /* modal overlay */
+  .tv-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.65);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+  }
+  .tv-modal {
+    background: ${G.surface};
+    border: 1px solid ${G.border2};
+    border-radius: 16px;
+    width: 100%;
+    max-width: 520px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 28px;
+    position: relative;
+  }
+  .tv-modal-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .tv-modal-sub { font-size: 13px; color: ${G.muted}; margin-bottom: 22px; }
+  .tv-modal-close {
+    position: absolute; top: 20px; right: 20px;
+    background: ${G.surface2}; border: 1px solid ${G.border2};
+    border-radius: 7px; width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: ${G.muted}; font-size: 16px;
+  }
+  .tv-modal-close:hover { color: ${G.text}; }
+  .tv-modal-actions { display: flex; gap: 10px; margin-top: 24px; }
+  .tv-modal-actions .tv-btn { width: auto; flex: 1; padding: 10px; }
+
+  /* detail view value */
+  .tv-value-box {
+    background: ${G.surface2};
+    border: 1px solid ${G.border2};
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: ${G.text};
+    word-break: break-all;
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+    position: relative;
+  }
+  .tv-value-box.blurred { filter: blur(5px); user-select: none; }
+
+  .tv-select {
+    width: 100%;
+    background: ${G.surface2};
+    border: 1px solid ${G.border2};
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: ${G.text};
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    outline: none;
+    appearance: none;
+  }
+  .tv-select:focus { border-color: ${G.accent}; }
+  .tv-textarea {
+    width: 100%;
+    background: ${G.surface2};
+    border: 1px solid ${G.border2};
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: ${G.text};
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    outline: none;
+    resize: vertical;
+    min-height: 100px;
+  }
+  .tv-textarea:focus { border-color: ${G.accent}; }
+
+  .tv-copy-toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: ${G.success};
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 99px;
+    font-size: 13px; font-weight: 600;
+    z-index: 2000;
+    animation: slideUp 0.2s ease;
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
+  .tv-error { color: ${G.danger}; font-size: 12px; margin-top: 6px; }
+  .tv-divider { border: none; border-top: 1px solid ${G.border}; margin: 16px 0; }
+  .tv-input-row { display: flex; gap: 10px; }
+  .tv-input-row .tv-field { flex: 1; }
+
+  /* collections view */
+  .tv-col-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .tv-col-card {
+    background: ${G.surface};
+    border: 1px solid ${G.border};
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .tv-col-card:hover { border-color: ${G.border2}; }
+  .tv-col-card.selected { border-color: ${G.accentBorder}; background: ${G.accentDim}; }
+  .tv-col-icon { font-size: 28px; margin-bottom: 8px; }
+  .tv-col-name { font-size: 14px; font-weight: 600; }
+  .tv-col-count { font-size: 11px; color: ${G.muted}; margin-top: 2px; }
+
+  /* audit page */
+  .tv-audit-full-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px;
+    background: ${G.surface};
+    border: 1px solid ${G.border};
+    border-radius: 10px;
+    margin-bottom: 6px;
+  }
+
+  @media (max-width: 700px) {
+    .tv-sidebar { display: none; }
+    .tv-stats { grid-template-columns: repeat(2, 1fr); }
+    .tv-bottom-grid { grid-template-columns: 1fr; }
+    .tv-masked { display: none; }
+    .tv-topbar { padding: 14px 16px 0; }
+    .tv-content { padding: 14px 16px 20px; }
+  }
+`;
+
+// ── COMPONENTS ───────────────────────────────────────────────────────────────
+
+function Toast({ msg }) {
+  if (!msg) return null;
+  return <div className="tv-copy-toast">{msg}</div>;
+}
+
+function CopyBtn({ value, onToast }) {
+  return (
+    <button className="tv-icon-btn" title="Copiar" onClick={e => {
+      e.stopPropagation();
+      navigator.clipboard?.writeText(value).catch(() => {});
+      onToast("✓ Copiado al portapapeles");
+    }}>📋</button>
+  );
+}
+
+// ── DETAIL MODAL ─────────────────────────────────────────────────────────────
+function DetailModal({ secret, collections, onClose, onDelete, onToast, userId }) {
+  const [revealed, setRevealed] = useState(false);
+  const [dec, setDec] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const col = collections.find(c => c.id === secret.col);
+  const meta = TYPE_META[secret.type] || TYPE_META.api;
+
+  useEffect(() => {
+    decryptSecret(secret).then(d => { setDec(d); setLoading(false); });
+    addAudit(userId, "read", secret.name, true);
+  }, [secret.id]);
+
+  return (
+    <div className="tv-overlay" onClick={onClose}>
+      <div className="tv-modal" onClick={e => e.stopPropagation()}>
+        <button className="tv-modal-close" onClick={onClose}>✕</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <div className="tv-type-icon" style={{ background: meta.bg, fontSize: 22 }}>{meta.icon}</div>
+          <div>
+            <div className="tv-modal-title" style={{ marginBottom: 2 }}>{secret.name}</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span className="tv-type-badge" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
+              {col && <span style={{ fontSize: 11, color: G.muted }}>{col.icon} {col.name}</span>}
+            </div>
+          </div>
+        </div>
+        <hr className="tv-divider" />
+        {loading ? (
+          <div style={{ color: G.muted, fontSize: 13, padding: "20px 0" }}>Desencriptando...</div>
+        ) : dec ? (
+          <>
+            {dec.user && (
+              <div className="tv-field">
+                <div className="tv-label">Usuario</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div className="tv-value-box" style={{ flex: 1, filter: revealed ? "none" : "blur(4px)", userSelect: revealed ? "auto" : "none" }}>{dec.user}</div>
+                  <CopyBtn value={dec.user} onToast={onToast} />
+                </div>
+              </div>
+            )}
+            <div className="tv-field">
+              <div className="tv-label">{secret.type === "config" ? "Contenido" : "Valor / Contraseña"}</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <div className="tv-value-box" style={{ flex: 1, filter: revealed ? "none" : "blur(5px)", userSelect: revealed ? "auto" : "none" }}>{dec.value}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <button className="tv-icon-btn" title={revealed ? "Ocultar" : "Revelar"} onClick={() => setRevealed(r => !r)}>{revealed ? "🙈" : "👁️"}</button>
+                  {revealed && <CopyBtn value={dec.value} onToast={onToast} />}
+                </div>
+              </div>
+              {!revealed && <div style={{ fontSize: 11, color: G.muted, marginTop: 6 }}>Pulsa 👁️ para revelar el valor</div>}
+            </div>
+            {dec.notes && (
+              <div className="tv-field">
+                <div className="tv-label">Notas</div>
+                <div style={{ fontSize: 13, color: G.muted, lineHeight: 1.6, background: G.surface2, padding: "10px 14px", borderRadius: 8 }}>{dec.notes}</div>
+              </div>
+            )}
+            <hr className="tv-divider" />
+            <div style={{ display: "flex", gap: 16, fontSize: 11, color: G.muted }}>
+              <span>Creado: {secret.created_at}</span>
+              <span>Actualizado: {secret.updated_at}</span>
+            </div>
+          </>
+        ) : (
+          <div style={{ color: G.danger, fontSize: 13 }}>Error al desencriptar.</div>
+        )}
+        <div className="tv-modal-actions">
+          <button className="tv-btn tv-btn-danger" onClick={() => { onDelete(secret.id); onClose(); }} style={{ padding: "10px", width: "auto", flex: 1 }}>🗑️ Eliminar</button>
+          <button className="tv-btn tv-btn-ghost" onClick={onClose} style={{ padding: "10px", width: "auto", flex: 1 }}>Cerrar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── NEW SECRET MODAL ──────────────────────────────────────────────────────────
+function NewSecretModal({ collections, onClose, onSave, onToast, userId }) {
+  const [form, setForm] = useState({ col: collections[0]?.id || "", type: "credential", name: "", user: "", value: "", notes: "" });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { setErr("El nombre es obligatorio"); return; }
+    if (!form.value.trim()) { setErr("El valor no puede estar vacío"); return; }
+    if (!_cryptoKey) { setErr("Introduce primero la contraseña maestra"); return; }
+    setSaving(true);
+    try {
+      await saveSecret(form, userId);
+      onToast("✓ Secreto guardado y encriptado en Supabase");
+      onSave();
+      onClose();
+    } catch (e) {
+      setErr("Error al guardar: " + e.message);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="tv-overlay" onClick={onClose}>
+      <div className="tv-modal" onClick={e => e.stopPropagation()}>
+        <button className="tv-modal-close" onClick={onClose}>✕</button>
+        <div className="tv-modal-title">Nuevo secreto</div>
+        <div className="tv-modal-sub">Se encriptará en tu navegador antes de guardarse en Supabase</div>
+        <div className="tv-input-row">
+          <div className="tv-field">
+            <div className="tv-label">Colección</div>
+            <select className="tv-select" value={form.col} onChange={e => set("col", e.target.value)}>
+              {collections.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+            </select>
+          </div>
+          <div className="tv-field">
+            <div className="tv-label">Tipo</div>
+            <select className="tv-select" value={form.type} onChange={e => set("type", e.target.value)}>
+              {Object.entries(TYPE_META).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="tv-field">
+          <div className="tv-label">Nombre</div>
+          <input className="tv-input" placeholder="ej: MySQL producción" value={form.name} onChange={e => set("name", e.target.value)} />
+        </div>
+        {form.type === "credential" && (
+          <div className="tv-field">
+            <div className="tv-label">Usuario / Email</div>
+            <input className="tv-input" placeholder="usuario@dominio.com" value={form.user} onChange={e => set("user", e.target.value)} />
+          </div>
+        )}
+        <div className="tv-field">
+          <div className="tv-label">{form.type === "config" ? "Contenido (JSON, YAML, texto...)" : "Valor / Contraseña / Key"}</div>
+            {form.type === "config" ? (
+              <textarea className="tv-textarea" placeholder='{"key": "value"}' value={form.value} onChange={e => set("value", e.target.value)} rows={5} />
+            ) : (
+              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                <input
+                  className="tv-input"
+                  type={form.showValue ? "text" : "password"}
+                  placeholder="••••••••••••••••"
+                  value={form.value}
+                  onChange={e => set("value", e.target.value)}
+                  style={{ paddingRight: 40, fontFamily: form.showValue ? "inherit" : "monospace" }}
+                />
+                <button
+                  type="button"
+                  onMouseDown={() => set("showValue", true)}
+                  onMouseUp={() => set("showValue", false)}
+                  onMouseLeave={() => set("showValue", false)}
+                  style={{
+                    position: "absolute", right: 10,
+                    background: "none", border: "none",
+                    cursor: "pointer", fontSize: 16,
+                    color: "#8B8A9E", padding: "4px",
+                    userSelect: "none",
+                  }}
+                >
+                  {form.showValue ? "🙈" : "👁️"}
+                </button>
+              </div>
+            )}        </div>
+        <div className="tv-field">
+          <div className="tv-label">Notas (opcional)</div>
+          <input className="tv-input" placeholder="Contexto, host, instrucciones..." value={form.notes} onChange={e => set("notes", e.target.value)} />
+        </div>
+        {err && <div className="tv-error">⚠ {err}</div>}
+        <div className="tv-modal-actions">
+          <button className="tv-btn tv-btn-ghost" onClick={onClose} style={{ padding: "10px", width: "auto", flex: 1 }}>Cancelar</button>
+          <button className="tv-btn" onClick={handleSave} disabled={saving} style={{ padding: "10px", width: "auto", flex: 2 }}>
+            {saving ? "Encriptando y guardando..." : "🔐 Guardar encriptado"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── NEW COLLECTION MODAL ──────────────────────────────────────────────────────
+function NewCollectionModal({ onClose, onSave, onToast, userId }) {
+  const ICONS = ["📁","🚌","🖥️","🏠","🔧","🌐","🗄️","🔐","📊","⚙️","🚀","💡"];
+  const [form, setForm] = useState({ name: "", icon: "📁", color: "#7C3AED" });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { setErr("El nombre es obligatorio"); return; }
+    setSaving(true);
+    try {
+      await createCollection(form.name, form.icon, form.color, userId);
+      onToast("✓ Colección creada");
+      onSave();
+      onClose();
+    } catch (e) {
+      setErr("Error: " + e.message);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="tv-overlay" onClick={onClose}>
+      <div className="tv-modal" onClick={e => e.stopPropagation()}>
+        <button className="tv-modal-close" onClick={onClose}>✕</button>
+        <div className="tv-modal-title">Nueva colección</div>
+        <div className="tv-modal-sub">Agrupa secretos por proyecto o sistema</div>
+        <div className="tv-field">
+          <div className="tv-label">Nombre</div>
+          <input className="tv-input" placeholder="ej: Infraestructura IT" value={form.name} onChange={e => set("name", e.target.value)} autoFocus />
+        </div>
+        <div className="tv-field">
+          <div className="tv-label">Icono</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {ICONS.map(ic => (
+              <button key={ic} onClick={() => set("icon", ic)} style={{
+                fontSize: 22, padding: "6px 10px", borderRadius: 8, cursor: "pointer",
+                background: form.icon === ic ? G.accentDim : G.surface2,
+                border: `1px solid ${form.icon === ic ? G.accentBorder : G.border2}`,
+              }}>{ic}</button>
+            ))}
+          </div>
+        </div>
+        {err && <div className="tv-error">⚠ {err}</div>}
+        <div className="tv-modal-actions">
+          <button className="tv-btn tv-btn-ghost" onClick={onClose} style={{ padding: "10px", width: "auto", flex: 1 }}>Cancelar</button>
+          <button className="tv-btn" onClick={handleSave} disabled={saving} style={{ padding: "10px", width: "auto", flex: 2 }}>
+            {saving ? "Creando..." : "✓ Crear colección"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── SECRET CARD ───────────────────────────────────────────────────────────────
+function SecretCard({ secret, collections, onSelect, onToast, onDelete, userId }) {
+  const meta = TYPE_META[secret.type] || TYPE_META.api;
+  const col = collections.find(c => c.id === secret.col);
+
+  return (
+    <div className="tv-secret-card" onClick={() => onSelect(secret)}>
+      <div className="tv-type-icon" style={{ background: meta.bg }}>{meta.icon}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="tv-secret-name">{secret.name}</div>
+        <div className="tv-secret-meta">{col ? `${col.icon} ${col.name}` : ""} · {timeAgo(secret.updated_at)}</div>
+      </div>
+      <span className="tv-type-badge" style={{ background: meta.bg, color: meta.color }}>{meta.label}</span>
+      <div className="tv-masked">{mask(secret.enc_value)}</div>
+      <div className="tv-card-actions" onClick={e => e.stopPropagation()}>
+        <button className="tv-icon-btn" title="Copiar valor" onClick={async () => {
+          const d = await decryptSecret(secret);
+          navigator.clipboard?.writeText(d.value || "").catch(() => {});
+          await addAudit(userId, "copy", secret.name, true);
+          onToast("✓ Valor copiado");
+        }}>📋</button>
+        <button className="tv-icon-btn" title="Ver detalle" onClick={() => onSelect(secret)}>👁️</button>
+      </div>
+    </div>
+  );
+}
+
+// ── MASTER KEY MODAL ──────────────────────────────────────────────────────────
+function MasterKeyModal({ onUnlock, onSkip }) {
+  const [master, setMaster] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  const handleUnlock = async () => {
+    if (master.length < 4) { setErr("Mínimo 4 caracteres"); return; }
+    setLoading(true);
+    try {
+      await initCrypto(master);
+      onUnlock();
+    } catch (e) {
+      setErr("Error al inicializar la clave");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="tv-overlay">
+      <div className="tv-modal">
+        <div className="tv-modal-title">🔐 Contraseña maestra</div>
+        <div className="tv-modal-sub">Necesaria para encriptar y desencriptar los secretos. No se almacena en ningún sitio.</div>
+        <div className="tv-field">
+          <div className="tv-label">Contraseña maestra del equipo</div>
+          <input className="tv-input" type="password" placeholder="••••••••••••" value={master}
+            onChange={e => setMaster(e.target.value)} onKeyDown={e => e.key === "Enter" && handleUnlock()} autoFocus />
+        </div>
+        {err && <div className="tv-error">⚠ {err}</div>}
+        <div className="tv-modal-actions">
+          <button className="tv-btn tv-btn-ghost" onClick={onSkip} style={{ padding: "10px", width: "auto", flex: 1 }}>Solo ver</button>
+          <button className="tv-btn" onClick={handleUnlock} disabled={loading} style={{ padding: "10px", width: "auto", flex: 2 }}>
+            {loading ? "Derivando clave AES-256..." : "🔓 Desbloquear"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PAGES ─────────────────────────────────────────────────────────────────────
+function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId }) {
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+
+  const filtered = secrets.filter(s => {
+    if (filter !== "all" && s.type !== filter) return false;
+    if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const handleDelete = async (id) => {
+    await deleteSecret(id, userId);
+    onRefresh();
+  };
+
+  return (
+    <>
+      <div className="tv-topbar">
+        <div className="tv-search">
+          <span style={{ color: G.muted }}>🔍</span>
+          <input placeholder="Buscar secretos, configs, claves..." value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <button className="tv-topbar-btn tv-topbar-btn-primary" onClick={() => setShowNew(true)}>+ Nuevo secreto</button>
+      </div>
+      <div className="tv-content">
+        <div className="tv-stats">
+          <div className="tv-stat">
+            <div className="tv-stat-label">Total secretos</div>
+            <div className="tv-stat-val">{secrets.length}</div>
+            <div className="tv-stat-sub">En {collections.length} colecciones</div>
+          </div>
+          <div className="tv-stat">
+            <div className="tv-stat-label">Colecciones</div>
+            <div className="tv-stat-val">{collections.length}</div>
+            <div className="tv-stat-sub">Activas</div>
+          </div>
+          <div className="tv-stat">
+            <div className="tv-stat-label">Accesos hoy</div>
+            <div className="tv-stat-val" style={{ color: G.accent }}>
+              {audit.filter(a => new Date(a.ts).toDateString() === new Date().toDateString()).length}
+            </div>
+            <div className="tv-stat-sub">En el log</div>
+          </div>
+          <div className="tv-stat">
+            <div className="tv-stat-label">Encriptación</div>
+            <div className="tv-stat-val" style={{ color: _cryptoKey ? G.success : G.warn, fontSize: 16, paddingTop: 4 }}>
+              {_cryptoKey ? "AES-256" : "Sin clave"}
+            </div>
+            <div className="tv-stat-sub">{_cryptoKey ? "Zero-knowledge activa" : "Solo lectura"}</div>
+          </div>
+        </div>
+
+        <div className="tv-filters">
+          {[["all","Todos"], ["api","API Keys"], ["credential","Credenciales"], ["config","Configs"], ["file","Documentos"]].map(([k,l]) => (
+            <button key={k} className={`tv-chip ${filter === k ? "active" : ""}`} onClick={() => setFilter(k)}>{l}</button>
+          ))}
+        </div>
+
+        <div className="tv-section-hd">
+          <div className="tv-section-title">{filtered.length} secreto{filtered.length !== 1 ? "s" : ""}</div>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div style={{ color: G.muted, fontSize: 13, padding: "32px 0", textAlign: "center" }}>
+            {search ? "No hay resultados para tu búsqueda" : "No hay secretos todavía. Crea el primero."}
+          </div>
+        ) : filtered.map(s => (
+          <SecretCard key={s.id} secret={s} collections={collections} onSelect={setSelected} onToast={onToast} onDelete={handleDelete} userId={userId} />
+        ))}
+
+        <div className="tv-bottom-grid">
+          <div className="tv-panel">
+            <div className="tv-panel-title">Auditoría reciente</div>
+            {audit.slice(0, 6).map((a, i) => (
+              <div key={a.id || i} className="tv-audit-row">
+                <div className="tv-audit-dot" style={{ background: a.ok ? G.success : G.danger }}></div>
+                <div>
+                  <div className="tv-audit-text">
+                    <span className="tv-audit-user">{a.user_email?.split("@")[0] || "usuario"}</span>
+                    {" "}{a.action === "read" ? "accedió a" : a.action === "update" ? "actualizó" : a.action === "create" ? "creó" : a.action === "copy" ? "copió" : "eliminó"}
+                    {" "}"{a.target_name}"
+                    {!a.ok && <span style={{ color: G.danger }}> ⚠ denegado</span>}
+                  </div>
+                  <div className="tv-audit-time">{timeAgo(a.ts)}</div>
+                </div>
+              </div>
+            ))}
+            {audit.length === 0 && <div style={{ color: G.muted, fontSize: 12, padding: "8px 0" }}>Sin actividad todavía</div>}
+          </div>
+          <div className="tv-panel">
+            <div className="tv-panel-title">Por tipo</div>
+            {Object.entries(TYPE_META).map(([k, v]) => {
+              const count = secrets.filter(s => s.type === k).length;
+              return (
+                <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${G.border}` }}>
+                  <span style={{ fontSize: 18 }}>{v.icon}</span>
+                  <span style={{ flex: 1, fontSize: 13 }}>{v.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: count > 0 ? G.text : G.muted }}>{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      {selected && <DetailModal secret={selected} collections={collections} onClose={() => setSelected(null)} onDelete={handleDelete} onToast={onToast} userId={userId} />}
+      {showNew && <NewSecretModal collections={collections} onClose={() => setShowNew(false)} onSave={onRefresh} onToast={onToast} userId={userId} />}
+    </>
+  );
+}
+
+function AuditPage({ audit }) {
+  const actIcon = { read: "👁️", update: "✏️", create: "✨", delete: "🗑️", copy: "📋" };
+  return (
+    <div className="tv-content">
+      <div className="tv-section-hd" style={{ marginBottom: 16 }}>
+        <div className="tv-section-title">Log de auditoría completo</div>
+      </div>
+      {audit.map((a, i) => (
+        <div key={a.id || i} className="tv-audit-full-row">
+          <div style={{ fontSize: 18 }}>{actIcon[a.action] || "•"}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13 }}>
+              <span style={{ fontWeight: 600 }}>{a.user_email?.split("@")[0] || "usuario"}</span>
+              {" "}<span style={{ color: G.muted }}>{a.action}</span>
+              {" "}→ <span style={{ color: G.text }}>"{a.target_name}"</span>
+              {!a.ok && <span style={{ color: G.danger, marginLeft: 8 }}>⚠ DENEGADO</span>}
+            </div>
+            <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>{new Date(a.ts).toLocaleString("es-ES")}</div>
+          </div>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: a.ok ? G.success : G.danger, flexShrink: 0 }}></div>
+        </div>
+      ))}
+      {audit.length === 0 && <div style={{ color: G.muted, fontSize: 13, padding: "32px 0", textAlign: "center" }}>Sin registros todavía</div>}
+    </div>
+  );
+}
+
+function CollectionsPage({ collections, secrets, audit, onRefresh, onToast, userId }) {
+  const [selCol, setSelCol] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [showNew, setShowNew] = useState(false);
+
+  const colSecrets = selCol ? secrets.filter(s => s.col === selCol) : secrets;
+
+  const handleDelete = async (id) => {
+    await deleteSecret(id, userId);
+    onRefresh();
+  };
+
+  return (
+    <>
+      <div className="tv-topbar">
+        <div className="tv-search"><span style={{ color: G.muted }}>📁</span><span style={{ color: G.muted, fontSize: 13 }}>Colecciones</span></div>
+        <button className="tv-topbar-btn tv-topbar-btn-primary" onClick={() => setShowNew(true)}>+ Nueva colección</button>
+      </div>
+      <div className="tv-content">
+        <div className="tv-col-grid">
+          {collections.map(c => (
+            <div key={c.id} className={`tv-col-card ${selCol === c.id ? "selected" : ""}`} onClick={() => setSelCol(selCol === c.id ? null : c.id)}>
+              <div className="tv-col-icon">{c.icon}</div>
+              <div className="tv-col-name">{c.name}</div>
+              <div className="tv-col-count">{secrets.filter(s => s.col === c.id).length} secretos</div>
+            </div>
+          ))}
+          {collections.length === 0 && (
+            <div style={{ color: G.muted, fontSize: 13, gridColumn: "1/-1", padding: "20px 0" }}>
+              No hay colecciones todavía. Crea la primera.
+            </div>
+          )}
+        </div>
+        <div className="tv-section-hd">
+          <div className="tv-section-title">{selCol ? collections.find(c => c.id === selCol)?.name : "Todos los secretos"} · {colSecrets.length}</div>
+        </div>
+        {colSecrets.map(s => (
+          <SecretCard key={s.id} secret={s} collections={collections} onSelect={setSelected} onToast={onToast} onDelete={handleDelete} userId={userId} />
+        ))}
+        {colSecrets.length === 0 && <div style={{ color: G.muted, fontSize: 13, padding: "32px 0", textAlign: "center" }}>Sin secretos en esta colección</div>}
+      </div>
+      {selected && <DetailModal secret={selected} collections={collections} onClose={() => setSelected(null)} onDelete={handleDelete} onToast={onToast} userId={userId} />}
+      {showNew && <NewCollectionModal onClose={() => setShowNew(false)} onSave={onRefresh} onToast={onToast} userId={userId} />}
+    </>
+  );
+}
+
+// ── LOGIN SCREEN ──────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        onLogin({ name: session.user.email.split("@")[0], email: session.user.email, id: session.user.id });
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        onLogin({ name: session.user.email.split("@")[0], email: session.user.email, id: session.user.id });
+      }
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("error") === "no-autorizado") {
+      setErr("Email no autorizado para acceder a TeamVault");
+    }
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleGoogle = async () => {
+    setLoading(true);
+    setErr("");
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: { access_type: "offline", prompt: "consent" },
+      },
+    });
+    if (error) { setErr(error.message); setLoading(false); }
+  };
+
+  return (
+    <div className="tv-login">
+      <div className="tv-login-card">
+        <div className="tv-login-logo">
+          <div className="tv-login-logo-icon">🔐</div>
+          <div>
+            <div className="tv-login-logo-name">TeamVault</div>
+            <div className="tv-login-logo-sub">Gestión segura de secretos</div>
+          </div>
+        </div>
+        <h2>Acceder</h2>
+        <p style={{ color: "#8B8A9E", fontSize: 13, marginBottom: 28 }}>
+          Usa tu cuenta Google del equipo para entrar
+        </p>
+        {err && <div className="tv-error" style={{ marginBottom: 12 }}>⚠ {err}</div>}
+        <button className="tv-btn" onClick={handleGoogle} disabled={loading}>
+          {loading ? "Redirigiendo a Google..." : "🔵 Entrar con Google"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── APP ROOT ──────────────────────────────────────────────────────────────────
+export default function TeamVaultApp() {
+  const [user, setUser] = useState(null);
+  const [page, setPage] = useState("dashboard");
+  const [toast, setToast] = useState("");
+  const [tick, setTick] = useState(0);
+  const [dataReady, setDataReady] = useState(false);
+  const [showMasterKey, setShowMasterKey] = useState(false);
+  const [collections, setCollections] = useState([]);
+  const [secrets, setSecrets] = useState([]);
+  const [audit, setAudit] = useState([]);
+  const toastTimer = useRef(null);
+
+  const showToast = useCallback((msg) => {
+    setToast(msg);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 2200);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!user) return;
+    await loadAll(user.id);
+    setCollections([..._store.collections]);
+    setSecrets([..._store.secrets]);
+    setAudit([..._store.audit]);
+    setTick(t => t + 1);
+  }, [user]);
+
+  // Cargar datos cuando el usuario hace login
+  useEffect(() => {
+    if (!user) return;
+    setDataReady(false);
+    loadAll(user.id).then(() => {
+      setCollections([..._store.collections]);
+      setSecrets([..._store.secrets]);
+      setAudit([..._store.audit]);
+      setDataReady(true);
+      // Pedir clave maestra al entrar
+      if (!_cryptoKey) setShowMasterKey(true);
+    });
+  }, [user]);
+
+  const NAV = [
+    { id: "dashboard", icon: "🏠", label: "Dashboard" },
+    { id: "collections", icon: "📁", label: "Colecciones" },
+    { id: "audit", icon: "📋", label: "Auditoría" },
+  ];
+
+  if (!user) return (
+    <>
+      <style>{css}</style>
+      <div className="tv-root">
+        <LoginScreen onLogin={u => setUser(u)} />
+      </div>
+    </>
+  );
+
+  return (
+    <>
+      <style>{css}</style>
+      <div className="tv-root">
+        {showMasterKey && (
+          <MasterKeyModal
+            onUnlock={() => { setShowMasterKey(false); showToast("🔓 Vault desbloqueado"); }}
+            onSkip={() => setShowMasterKey(false)}
+          />
+        )}
+        <div className="tv-layout">
+          <nav className="tv-sidebar">
+            <div className="tv-sidebar-logo">
+              <div className="tv-sidebar-logo-icon">🔐</div>
+              <div className="tv-sidebar-logo-txt">TeamVault</div>
+            </div>
+            <div className="tv-nav-section">
+              <div className="tv-nav-label">Menú</div>
+              {NAV.map(n => (
+                <div key={n.id} className={`tv-nav-item ${page === n.id ? "active" : ""}`} onClick={() => setPage(n.id)}>
+                  <span className="nav-icon">{n.icon}</span>
+                  {n.label}
+                  {n.id === "audit" && audit.length > 0 && <span className="tv-nav-badge">{audit.length}</span>}
+                </div>
+              ))}
+            </div>
+            <div className="tv-sidebar-bottom">
+              <div className="tv-user-chip">
+                <div className="tv-avatar">{user.name.slice(0,2).toUpperCase()}</div>
+                <div>
+                  <div className="tv-avatar-name">{user.name}</div>
+                  <div className="tv-avatar-role">{user.email}</div>
+                </div>
+              </div>
+              <div className="tv-enc-badge" style={{ cursor: "pointer" }} onClick={() => setShowMasterKey(true)}>
+                {_cryptoKey ? "🔒 AES-256-GCM activo" : "🔓 Sin clave maestra"}
+              </div>
+              <div className="tv-nav-item" style={{ marginTop: 6, color: G.muted }} onClick={async () => {
+                await supabase.auth.signOut();
+                _cryptoKey = null;
+                setUser(null);
+              }}>
+                <span className="nav-icon">🚪</span> Cerrar sesión
+              </div>
+            </div>
+          </nav>
+
+          <main className="tv-main">
+            {!dataReady ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, color: G.muted, fontSize: 14 }}>
+                Cargando datos de Supabase...
+              </div>
+            ) : (
+              <>
+                {page === "dashboard" && <DashboardPage key={tick} collections={collections} secrets={secrets} audit={audit} onToast={showToast} onRefresh={refresh} userId={user.id} />}
+                {page === "collections" && <CollectionsPage key={tick} collections={collections} secrets={secrets} audit={audit} onRefresh={refresh} onToast={showToast} userId={user.id} />}
+                {page === "audit" && <AuditPage key={tick} audit={audit} />}
+              </>
+            )}
+          </main>
+        </div>
+        {toast && <Toast msg={toast} />}
+      </div>
+    </>
+  );
+}
