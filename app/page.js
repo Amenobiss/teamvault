@@ -18,6 +18,9 @@ import {
   ShieldCheckIcon,
 } from "@heroicons/react/24/outline";
 
+// ── VERSION ───────────────────────────────────────────────────────────────────
+const APP_VERSION = "1.3";
+
 // ── CLIENTE SUPABASE SINGLETON ────────────────────────────────────────────────
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -238,9 +241,6 @@ async function loadAll(userId) {
     loadAudit(userId),
   ]);
 }
-
-// ── VERSION ───────────────────────────────────────────────────────────────────
-const APP_VERSION = "1.1.0";
 
 // ── TYPE CONFIG ──────────────────────────────────────────────────────────────
 const TYPE_META = {
