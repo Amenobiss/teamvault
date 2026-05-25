@@ -1486,7 +1486,7 @@ export default function TeamVaultApp() {
               <div className="tv-enc-badge" style={{ cursor: "pointer" }} onClick={() => setShowMasterKey(true)}>
                 {_cryptoKey ? <><LockClosedIcon style={{ width: 12, height: 12 }} /> AES-256-GCM activo</> : <><LockOpenIcon style={{ width: 12, height: 12 }} /> Sin clave maestra</>}
               </div>
-              <div className="tv-nav-item" style={{ marginTop: 6, color: G.muted }} onClick={async () => {
+              <div className="tv-nav-item" style={{ marginTop: 6, color: G.accent }} onClick={async () => {
                 await supabase.auth.signOut();
                 _cryptoKey = null;
                 setUser(null);
