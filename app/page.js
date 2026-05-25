@@ -87,24 +87,16 @@ async function loadCollections(userId) {
   return _store.collections;
 }
 
+// Usa función SECURITY DEFINER (sin abrir tablas)
 async function createCollection(name, icon, color, userId) {
-  const { data, error } = await supabase
-    .from("collections")
-    .insert({ name, icon: icon || "📁", color: color || "#7C3AED", owner_id: userId })
-    .select()
-    .single();
-  if (error) throw error;
-
-  // El creador se añade como admin automáticamente
-  await supabase.from("collection_members").insert({
-    collection_id: data.id,
-    user_id: userId,
-    role: "admin",
-    invited_by: userId,
+  const { data, error } = await supabase.rpc("create_collection_with_member", {
+    p_name:  name,
+    p_icon:  icon  || "📁",
+    p_color: color || "#7C3AED",
   });
-
+  if (error) throw error;
   await loadCollections(userId);
-  return data;
+  return data; // retorna el UUID de la nueva colección
 }
 
 // ── SECRETOS ──────────────────────────────────────────────────────────────────
