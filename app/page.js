@@ -1493,7 +1493,7 @@ export default function TeamVaultApp() {
               }}>
                 <span className="nav-icon"><ArrowRightStartOnRectangleIcon style={{ width: 16, height: 16 }} /></span> Cerrar sesión
               </div>
-              <div style={{ padding: "8px 10px 0", fontSize: 10, color: G.muted, opacity: 0.5, letterSpacing: "0.04em" }}>
+              <div style={{ padding: "8px 10px 0", fontSize: 10, color: G.accent, opacity: 0.5, letterSpacing: "0.04em" }}>
                 v{APP_VERSION}
               </div>
             </div>
