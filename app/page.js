@@ -2,22 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
-import {
-  ClipboardDocumentIcon,
-  EyeIcon,
-  EyeSlashIcon,
-  PencilSquareIcon,
-  TrashIcon,
-  XMarkIcon,
-  LockClosedIcon,
-  LockOpenIcon,
-  ArrowRightStartOnRectangleIcon,
-  ExclamationTriangleIcon,
-  CheckIcon,
-  CloudArrowUpIcon,
-  ShieldCheckIcon,
-  FingerPrintIcon,
-} from "@heroicons/react/24/outline";
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
 const APP_VERSION = "1.4.1";
@@ -957,7 +941,7 @@ function CopyBtn({ value, onToast }) {
       e.stopPropagation();
       navigator.clipboard?.writeText(value).catch(() => {});
       onToast("✓ Copiado al portapapeles");
-    }}><ClipboardDocumentIcon style={{ width: 15, height: 15 }} /></button>
+    }}>Copiar</button>
   );
 }
 
@@ -976,7 +960,7 @@ function DetailModal({ secret, collections, onClose, onDelete, onEdit, onToast, 
   return (
     <div className="tv-overlay" onClick={onClose}>
       <div className="tv-modal" onClick={e => e.stopPropagation()}>
-        <button className="tv-modal-close" onClick={onClose}><XMarkIcon style={{ width: 16, height: 16 }} /></button>
+        <button className="tv-modal-close" onClick={onClose}>✕</button>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
           <div className="tv-type-icon" style={{ background: meta.bg, fontSize: 22 }}>{meta.icon}</div>
           <div>
@@ -1008,11 +992,11 @@ function DetailModal({ secret, collections, onClose, onDelete, onEdit, onToast, 
                 {/* Contraseña: oculta por defecto, revelar para copiar */}
                 <div className="tv-value-box" style={{ flex: 1, filter: revealed ? "none" : "blur(5px)", userSelect: revealed ? "auto" : "none" }}>{dec.value}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <button className="tv-icon-btn" title={revealed ? "Ocultar" : "Revelar"} onClick={() => setRevealed(r => !r)}>{revealed ? <EyeSlashIcon style={{ width: 15, height: 15 }} /> : <EyeIcon style={{ width: 15, height: 15 }} />}</button>
+                  <button className="tv-icon-btn" title={revealed ? "Ocultar" : "Revelar"} onClick={() => setRevealed(r => !r)}>{revealed ? "Ocultar" : "Ver"}</button>
                   {revealed && <CopyBtn value={dec.value} onToast={onToast} />}
                 </div>
               </div>
-              {!revealed && <div style={{ fontSize: 11, color: G.muted, marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}><EyeIcon style={{ width: 12, height: 12 }} /> Pulsa el ojo para revelar el valor</div>}
+              {!revealed && <div style={{ fontSize: 11, color: G.muted, marginTop: 6 }}>Pulsa "Ver" para revelar el valor</div>}
             </div>
             {dec.notes && (
               <div className="tv-field">
@@ -1030,8 +1014,8 @@ function DetailModal({ secret, collections, onClose, onDelete, onEdit, onToast, 
           <div style={{ color: G.danger, fontSize: 13 }}>Error al desencriptar.</div>
         )}
         <div className="tv-modal-actions">
-          <button className="tv-btn tv-btn-danger" onClick={() => { onDelete(secret.id); onClose(); }} style={{ padding: "10px", width: "auto", flex: 1 }}><TrashIcon style={{ width: 15, height: 15, display: "inline", marginRight: 6 }} />Eliminar</button>
-          <button className="tv-btn tv-btn-ghost" onClick={() => { onClose(); onEdit(secret); }} style={{ padding: "10px", width: "auto", flex: 1 }}><PencilSquareIcon style={{ width: 15, height: 15, display: "inline", marginRight: 6 }} />Editar</button>
+          <button className="tv-btn tv-btn-danger" onClick={() => { onDelete(secret.id); onClose(); }} style={{ padding: "10px", width: "auto", flex: 1 }}>Eliminar</button>
+          <button className="tv-btn tv-btn-ghost" onClick={() => { onClose(); onEdit(secret); }} style={{ padding: "10px", width: "auto", flex: 1 }}>Editar</button>
           <button className="tv-btn tv-btn-ghost" onClick={onClose} style={{ padding: "10px", width: "auto", flex: 1 }}>Cerrar</button>
         </div>
       </div>
@@ -1084,8 +1068,8 @@ function SecretModal({ collections, onClose, onSave, onToast, userId, editSecret
   return (
     <div className="tv-overlay" onClick={onClose}>
       <div className="tv-modal" onClick={e => e.stopPropagation()}>
-        <button className="tv-modal-close" onClick={onClose}><XMarkIcon style={{ width: 16, height: 16 }} /></button>
-        <div className="tv-modal-title">{isEdit ? <><PencilSquareIcon style={{ width: 18, height: 18, display: "inline", marginRight: 6, verticalAlign: "middle" }} />Editar secreto</> : "Nuevo secreto"}</div>
+        <button className="tv-modal-close" onClick={onClose}>✕</button>
+        <div className="tv-modal-title">{isEdit ? "✏ Editar secreto" : "Nuevo secreto"}</div>
         <div className="tv-modal-sub">{isEdit ? "Modifica los datos. Se re-encriptará en tu navegador." : "Se encriptará en tu navegador antes de guardarse en Supabase"}</div>
         {loading ? (
           <div style={{ color: G.muted, fontSize: 13, padding: "20px 0" }}>Desencriptando datos...</div>
@@ -1141,7 +1125,7 @@ function SecretModal({ collections, onClose, onSave, onToast, userId, editSecret
                     userSelect: "none",
                   }}
                 >
-                  {form.showValue ? <EyeSlashIcon style={{ width: 16, height: 16 }} /> : <EyeIcon style={{ width: 16, height: 16 }} />}
+                  {form.showValue ? "Ocultar" : "Ver"}
                 </button>
               </div>
             )}        </div>
@@ -1149,11 +1133,11 @@ function SecretModal({ collections, onClose, onSave, onToast, userId, editSecret
           <div className="tv-label">Notas (opcional)</div>
           <input className="tv-input" placeholder="Contexto, host, instrucciones..." value={form.notes} onChange={e => set("notes", e.target.value)} />
         </div>
-        {err && <div className="tv-error"><ExclamationTriangleIcon style={{ width: 13, height: 13, display: "inline", marginRight: 4, verticalAlign: "middle" }} />{err}</div>}
+        {err && <div className="tv-error">{err}</div>}
         <div className="tv-modal-actions">
           <button className="tv-btn tv-btn-ghost" onClick={onClose} style={{ padding: "10px", width: "auto", flex: 1 }}>Cancelar</button>
           <button className="tv-btn" onClick={handleSave} disabled={saving} style={{ padding: "10px", width: "auto", flex: 2 }}>
-            {saving ? "Encriptando y guardando..." : isEdit ? <><CloudArrowUpIcon style={{ width: 15, height: 15, display: "inline", marginRight: 6 }} />Guardar cambios</> : <><ShieldCheckIcon style={{ width: 15, height: 15, display: "inline", marginRight: 6 }} />Guardar encriptado</>}
+            {saving ? "Encriptando y guardando..." : isEdit ? "Guardar cambios" : "Guardar encriptado"}
           </button>
         </div>
         </>)}
@@ -1187,7 +1171,7 @@ function NewCollectionModal({ onClose, onSave, onToast, userId }) {
   return (
     <div className="tv-overlay" onClick={onClose}>
       <div className="tv-modal" onClick={e => e.stopPropagation()}>
-        <button className="tv-modal-close" onClick={onClose}><XMarkIcon style={{ width: 16, height: 16 }} /></button>
+        <button className="tv-modal-close" onClick={onClose}>✕</button>
         <div className="tv-modal-title">Nueva colección</div>
         <div className="tv-modal-sub">Agrupa secretos por proyecto o sistema</div>
         <div className="tv-field">
@@ -1206,7 +1190,7 @@ function NewCollectionModal({ onClose, onSave, onToast, userId }) {
             ))}
           </div>
         </div>
-        {err && <div className="tv-error"><ExclamationTriangleIcon style={{ width: 13, height: 13, display: "inline", marginRight: 4, verticalAlign: "middle" }} />{err}</div>}
+        {err && <div className="tv-error">{err}</div>}
         <div className="tv-modal-actions">
           <button className="tv-btn tv-btn-ghost" onClick={onClose} style={{ padding: "10px", width: "auto", flex: 1 }}>Cancelar</button>
           <button className="tv-btn" onClick={handleSave} disabled={saving} style={{ padding: "10px", width: "auto", flex: 2 }}>
@@ -1238,9 +1222,9 @@ function SecretCard({ secret, collections, onSelect, onEdit, onToast, onDelete, 
           navigator.clipboard?.writeText(d.value || "").catch(() => {});
           await addAudit(userId, "copy", secret.name, true);
           onToast("✓ Valor copiado");
-        }}><ClipboardDocumentIcon style={{ width: 15, height: 15 }} /></button>
-        <button className="tv-icon-btn" title="Editar" onClick={() => onEdit(secret)}><PencilSquareIcon style={{ width: 15, height: 15 }} /></button>
-        <button className="tv-icon-btn" title="Ver detalle" onClick={() => onSelect(secret)}><EyeIcon style={{ width: 15, height: 15 }} /></button>
+        }}>Copiar</button>
+        <button className="tv-icon-btn" title="Editar" onClick={() => onEdit(secret)}>Editar</button>
+        <button className="tv-icon-btn" title="Ver detalle" onClick={() => onSelect(secret)}>Ver</button>
       </div>
     </div>
   );
@@ -1308,7 +1292,7 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
       <div className="tv-overlay">
         <div className="tv-modal" style={{ textAlign: "center" }}>
           <div className="tv-modal-title" style={{ justifyContent: "center", display: "flex", alignItems: "center", gap: 8 }}>
-            <FingerPrintIcon style={{ width: 22, height: 22 }} /> Desbloquear Vault
+            Desbloquear Vault
           </div>
           <div className="tv-modal-sub">Usa tu huella, Face ID o PIN del dispositivo</div>
           {loading ? (
@@ -1316,13 +1300,12 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
           ) : (
             <>
               <button className="tv-btn" onClick={handlePasskeyUnlock} style={{ marginBottom: 10 }}>
-                <FingerPrintIcon style={{ width: 16, height: 16, display: "inline", marginRight: 8 }} />
                 Verificar identidad
               </button>
               <button className="tv-btn tv-btn-ghost" onClick={onSkip} style={{ marginBottom: 6 }}>Solo ver</button>
             </>
           )}
-          {err && <div className="tv-error" style={{ marginTop: 8 }}><ExclamationTriangleIcon style={{ width: 13, height: 13, display: "inline", marginRight: 4, verticalAlign: "middle" }} />{err}</div>}
+          {err && <div className="tv-error" style={{ marginTop: 8 }}>{err}</div>}
           <div style={{ marginTop: 16 }}>
             <button onClick={handleForgetPasskey} style={{ background: "none", border: "none", color: G.muted, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>
               Usar contraseña maestra
@@ -1338,8 +1321,7 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
     <div className="tv-overlay">
       <div className="tv-modal">
         <div className="tv-modal-title">
-          <LockClosedIcon style={{ width: 18, height: 18, display: "inline", marginRight: 8, verticalAlign: "middle" }} />
-          Contraseña maestra
+          🔒 Contraseña maestra
         </div>
         <div className="tv-modal-sub">
           {passkeySupported && !passkeyRegistered
@@ -1351,15 +1333,15 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
           <input className="tv-input" type="password" placeholder="••••••••••••" value={master}
             onChange={e => setMaster(e.target.value)} onKeyDown={e => e.key === "Enter" && handleUnlock()} autoFocus />
         </div>
-        {err && <div className="tv-error"><ExclamationTriangleIcon style={{ width: 13, height: 13, display: "inline", marginRight: 4, verticalAlign: "middle" }} />{err}</div>}
+        {err && <div className="tv-error">{err}</div>}
         <div className="tv-modal-actions">
           <button className="tv-btn tv-btn-ghost" onClick={onSkip} style={{ padding: "10px", width: "auto", flex: 1 }}>Solo ver</button>
           <button className="tv-btn" onClick={handleUnlock} disabled={loading} style={{ padding: "10px", width: "auto", flex: 2 }}>
             {loading
               ? "Procesando..."
               : passkeySupported && !passkeyRegistered
-                ? <><FingerPrintIcon style={{ width: 15, height: 15, display: "inline", marginRight: 6 }} />Desbloquear y activar biometría</>
-                : <><LockOpenIcon style={{ width: 15, height: 15, display: "inline", marginRight: 6 }} />Desbloquear</>
+                ? "Desbloquear y activar biometría"
+                : "Desbloquear"
             }
           </button>
         </div>
@@ -1460,7 +1442,7 @@ function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId
                     <span className="tv-audit-user">{a.user_email?.split("@")[0] || "usuario"}</span>
                     {" "}{a.action === "read" ? "accedió a" : a.action === "update" ? "actualizó" : a.action === "create" ? "creó" : a.action === "copy" ? "copió" : "eliminó"}
                     {" "}"{a.target_name}"
-                    {!a.ok && <span style={{ color: G.danger }}><ExclamationTriangleIcon style={{ width: 12, height: 12, display: "inline", marginLeft: 6 }} /> denegado</span>}
+                    {!a.ok && <span style={{ color: G.danger }}> denegado</span>}
                   </div>
                   <div className="tv-audit-time">{timeAgo(a.ts)}</div>
                 </div>
@@ -1492,11 +1474,11 @@ function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId
 
 function AuditPage({ audit }) {
   const actIcon = {
-    read:   <EyeIcon style={{ width: 16, height: 16 }} />,
-    update: <PencilSquareIcon style={{ width: 16, height: 16 }} />,
-    create: <CheckIcon style={{ width: 16, height: 16 }} />,
-    delete: <TrashIcon style={{ width: 16, height: 16 }} />,
-    copy:   <ClipboardDocumentIcon style={{ width: 16, height: 16 }} />,
+    read:   "ver",
+    update: "editó",
+    create: "creó",
+    delete: "eliminó",
+    copy:   "copió",
   };
   return (
     <div className="tv-content">
@@ -1511,7 +1493,7 @@ function AuditPage({ audit }) {
               <span style={{ fontWeight: 600 }}>{a.user_email?.split("@")[0] || "usuario"}</span>
               {" "}<span style={{ color: G.muted }}>{a.action}</span>
               {" "}→ <span style={{ color: G.text }}>"{a.target_name}"</span>
-              {!a.ok && <span style={{ color: G.danger, marginLeft: 8 }}><ExclamationTriangleIcon style={{ width: 13, height: 13, display: "inline", marginRight: 4 }} /> DENEGADO</span>}
+              {!a.ok && <span style={{ color: G.danger, marginLeft: 8 }}> DENEGADO</span>}
             </div>
             <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>{new Date(a.ts).toLocaleString("es-ES")}</div>
           </div>
@@ -1625,7 +1607,7 @@ function LoginScreen({ onLogin }) {
         <p style={{ color: "#8B8A9E", fontSize: 13, marginBottom: 28 }}>
           Usa tu cuenta Google del equipo para entrar
         </p>
-        {err && <div className="tv-error" style={{ marginBottom: 12 }}><ExclamationTriangleIcon style={{ width: 13, height: 13, display: "inline", marginRight: 4, verticalAlign: "middle" }} />{err}</div>}
+        {err && <div className="tv-error" style={{ marginBottom: 12 }}>{err}</div>}
         <button className="tv-btn" onClick={handleGoogle} disabled={loading}>
           {loading ? "Redirigiendo a Google..." : "🔵 Entrar con Google"}
         </button>
@@ -1716,10 +1698,10 @@ export default function TeamVaultApp() {
           </div>
         </div>
         <div className="tv-enc-badge" style={{ cursor: "pointer" }} onClick={() => { setShowMasterKey(true); setDrawerOpen(false); }}>
-          {_cryptoKey ? <><LockClosedIcon style={{ width: 12, height: 12 }} /> AES-256-GCM activo</> : <><LockOpenIcon style={{ width: 12, height: 12 }} /> Sin clave maestra</>}
+          {_cryptoKey ? "🔒 AES-256-GCM activo" : "🔓 Sin clave maestra"}
         </div>
         <div className="tv-nav-item" style={{ marginTop: 6, color: G.accent }} onClick={handleSignOut}>
-          <span className="nav-icon"><ArrowRightStartOnRectangleIcon style={{ width: 16, height: 16 }} /></span> Cerrar sesión
+          Salir
         </div>
         <div style={{ padding: "8px 10px 0", fontSize: 10, color: G.accent, opacity: 0.5, letterSpacing: "0.04em" }}>
           v{APP_VERSION}
