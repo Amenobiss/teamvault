@@ -13,7 +13,17 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: "TeamVault",
-  description: "Para CTCD Team",
+  description: "Gestión segura de Claves CTCD Jaen",
+  manifest: "/manifest.json",
+  icons: {
+    apple: "/teamvault_icon-192.png",
+    icon: "/teamvault_icon-512.png",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "TeamVault",
+  },
 };
 
 export default function RootLayout({ children }) {

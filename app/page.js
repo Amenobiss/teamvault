@@ -65,8 +65,30 @@ let _currentUser = null;
 // Estado reactivo en memoria (cache local)
 let _store = { collections: [], secrets: [], audit: [] };
 
+const VAULT_VERIFIER_KEY = "tv_vault_verifier";
+const VAULT_VERIFIER_PLAIN = "teamvault-ok";
+
 async function initCrypto(master) {
-  _cryptoKey = await crypto_engine.deriveKey(master, SALT);
+  const key = await crypto_engine.deriveKey(master, SALT);
+  const stored = localStorage.getItem(VAULT_VERIFIER_KEY);
+
+  if (!stored) {
+    // Primera vez: guardar verificador encriptado con esta clave
+    const verifier = await crypto_engine.encrypt(VAULT_VERIFIER_PLAIN, key);
+    localStorage.setItem(VAULT_VERIFIER_KEY, verifier);
+    _cryptoKey = key;
+    return true;
+  }
+
+  // Siguientes veces: desencriptar el verificador para validar la clave
+  const result = await crypto_engine.decrypt(stored, key);
+  if (result !== VAULT_VERIFIER_PLAIN) {
+    _cryptoKey = null;
+    return false; // clave incorrecta
+  }
+
+  _cryptoKey = key;
+  return true;
 }
 
 // ── WEBAUTHN / PASSKEY ENGINE ─────────────────────────────────────────────────
@@ -1247,7 +1269,7 @@ function SecretCard({ secret, collections, onSelect, onEdit, onToast, onDelete, 
 }
 
 // ── MASTER KEY MODAL ──────────────────────────────────────────────────────────
-function MasterKeyModal({ onUnlock, onSkip, userName }) {
+function MasterKeyModal({ onUnlock, userName }) {
   const [master, setMaster] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -1255,7 +1277,6 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
   const [passkeyRegistered, setPasskeyRegistered] = useState(() => typeof window !== "undefined" && passkey.isRegistered());
   const [showManual, setShowManual] = useState(false);
 
-  // Si hay passkey registrada, intentar desbloquear automáticamente al montar
   useEffect(() => {
     if (passkeyRegistered) handlePasskeyUnlock();
   }, []);
@@ -1263,11 +1284,15 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
   const handlePasskeyUnlock = async () => {
     setLoading(true); setErr("");
     try {
-      const master = await passkey.unlock();
-      await initCrypto(master);
-      onUnlock();
+      const masterPwd = await passkey.unlock();
+      const ok = await initCrypto(masterPwd);
+      if (ok) {
+        onUnlock();
+      } else {
+        setShowManual(true);
+        setErr("❌ La clave biométrica no coincide. Introduce la contraseña manualmente.");
+      }
     } catch (e) {
-      // El usuario canceló o falló la biometría → mostrar formulario manual
       setShowManual(true);
       setErr("Verificación biométrica cancelada. Introduce la clave manualmente.");
     }
@@ -1278,8 +1303,13 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
     if (master.length < 4) { setErr("Mínimo 4 caracteres"); return; }
     setLoading(true); setErr("");
     try {
-      await initCrypto(master);
-      // Si WebAuthn disponible y no registrado, ofrecer registrar passkey
+      const ok = await initCrypto(master);
+      if (!ok) {
+        setErr("❌ Contraseña incorrecta. No puedes acceder al vault.");
+        setLoading(false);
+        return;
+      }
+      // Clave correcta: registrar passkey si es posible
       if (passkeySupported && !passkeyRegistered) {
         try {
           await passkey.register(master, userName || "usuario");
@@ -1290,7 +1320,7 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
       }
       onUnlock();
     } catch (e) {
-      setErr("Error al inicializar la clave");
+      setErr("Error al verificar la clave");
     }
     setLoading(false);
   };
@@ -1314,14 +1344,15 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
           {loading ? (
             <div style={{ color: G.muted, fontSize: 13, padding: "24px 0" }}>Esperando verificación biométrica...</div>
           ) : (
-            <>
-              <button className="tv-btn" onClick={handlePasskeyUnlock} style={{ marginBottom: 10 }}>
-                <Fingerprint size={16} style={{display:"inline",marginRight:8}} />Verificar identidad
-              </button>
-              <button className="tv-btn tv-btn-ghost" onClick={onSkip} style={{ marginBottom: 6 }}>Solo ver</button>
-            </>
+            <button className="tv-btn" onClick={handlePasskeyUnlock} style={{ marginBottom: 10 }}>
+              <Fingerprint size={16} style={{display:"inline",marginRight:8}} />Verificar identidad
+            </button>
           )}
-          {err && <div className="tv-error" style={{ marginTop: 8 }}>{err}</div>}
+          {err && (
+            <div style={{ marginTop: 8, padding: "10px 12px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, color: G.danger, fontSize: 12 }}>
+              {err}
+            </div>
+          )}
           <div style={{ marginTop: 16 }}>
             <button onClick={handleForgetPasskey} style={{ background: "none", border: "none", color: G.muted, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>
               Usar contraseña maestra
@@ -1336,9 +1367,7 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
   return (
     <div className="tv-overlay">
       <div className="tv-modal">
-        <div className="tv-modal-title">
-          🔒 Contraseña maestra
-        </div>
+        <div className="tv-modal-title">🔒 Contraseña maestra</div>
         <div className="tv-modal-sub">
           {passkeySupported && !passkeyRegistered
             ? "Al desbloquear, podrás activar el acceso biométrico para la próxima vez."
@@ -1349,12 +1378,15 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
           <input className="tv-input" type="password" placeholder="••••••••••••" value={master}
             onChange={e => setMaster(e.target.value)} onKeyDown={e => e.key === "Enter" && handleUnlock()} autoFocus />
         </div>
-        {err && <div className="tv-error">{err}</div>}
-        <div className="tv-modal-actions">
-          <button className="tv-btn tv-btn-ghost" onClick={onSkip} style={{ padding: "10px", width: "auto", flex: 1 }}>Solo ver</button>
-          <button className="tv-btn" onClick={handleUnlock} disabled={loading} style={{ padding: "10px", width: "auto", flex: 2 }}>
+        {err && (
+          <div style={{ marginTop: 8, padding: "10px 12px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, color: G.danger, fontSize: 12 }}>
+            {err}
+          </div>
+        )}
+        <div className="tv-modal-actions" style={{ marginTop: 16 }}>
+          <button className="tv-btn" onClick={handleUnlock} disabled={loading} style={{ padding: "10px", width: "auto", flex: 1 }}>
             {loading
-              ? "Procesando..."
+              ? "Verificando..."
               : passkeySupported && !passkeyRegistered
                 ? <><Fingerprint size={14} style={{display:"inline",marginRight:6}} />Desbloquear y activar biometría</>
                 : <><Unlock size={14} style={{display:"inline",marginRight:6}} />Desbloquear</>
@@ -1758,7 +1790,6 @@ export default function TeamVaultApp() {
         <MasterKeyModal
           userName={user?.email || "usuario"}
           onUnlock={() => { setVaultUnlocked(true); showToast("✓ Vault desbloqueado"); }}
-          onSkip={() => setVaultUnlocked(true)}
         />
       </div>
     </>
