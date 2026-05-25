@@ -790,8 +790,7 @@ function CopyBtn({ value, onToast }) {
   );
 }
 
-// ── DETAIL MODAL ─────────────────────────────────────────────────────────────
-function DetailModal({ secret, collections, onClose, onDelete, onToast, userId }) {
+function DetailModal({ secret, collections, onClose, onDelete, onEdit, onToast, userId }) {
   const [revealed, setRevealed] = useState(false);
   const [dec, setDec] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -824,9 +823,10 @@ function DetailModal({ secret, collections, onClose, onDelete, onToast, userId }
           <>
             {dec.user && (
               <div className="tv-field">
-                <div className="tv-label">Usuario</div>
+                <div className="tv-label">Usuario / Email</div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <div className="tv-value-box" style={{ flex: 1, filter: revealed ? "none" : "blur(4px)", userSelect: revealed ? "auto" : "none" }}>{dec.user}</div>
+                  {/* Usuario: siempre visible, solo copiable */}
+                  <div className="tv-value-box" style={{ flex: 1 }}>{dec.user}</div>
                   <CopyBtn value={dec.user} onToast={onToast} />
                 </div>
               </div>
@@ -834,6 +834,7 @@ function DetailModal({ secret, collections, onClose, onDelete, onToast, userId }
             <div className="tv-field">
               <div className="tv-label">{secret.type === "config" ? "Contenido" : "Valor / Contraseña"}</div>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                {/* Contraseña: oculta por defecto, revelar para copiar */}
                 <div className="tv-value-box" style={{ flex: 1, filter: revealed ? "none" : "blur(5px)", userSelect: revealed ? "auto" : "none" }}>{dec.value}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <button className="tv-icon-btn" title={revealed ? "Ocultar" : "Revelar"} onClick={() => setRevealed(r => !r)}>{revealed ? "🙈" : "👁️"}</button>
@@ -859,6 +860,7 @@ function DetailModal({ secret, collections, onClose, onDelete, onToast, userId }
         )}
         <div className="tv-modal-actions">
           <button className="tv-btn tv-btn-danger" onClick={() => { onDelete(secret.id); onClose(); }} style={{ padding: "10px", width: "auto", flex: 1 }}>🗑️ Eliminar</button>
+          <button className="tv-btn tv-btn-ghost" onClick={() => { onClose(); onEdit(secret); }} style={{ padding: "10px", width: "auto", flex: 1 }}>✏️ Editar</button>
           <button className="tv-btn tv-btn-ghost" onClick={onClose} style={{ padding: "10px", width: "auto", flex: 1 }}>Cerrar</button>
         </div>
       </div>
@@ -866,12 +868,31 @@ function DetailModal({ secret, collections, onClose, onDelete, onToast, userId }
   );
 }
 
-// ── NEW SECRET MODAL ──────────────────────────────────────────────────────────
-function NewSecretModal({ collections, onClose, onSave, onToast, userId }) {
+// ── SECRET MODAL (crear y editar) ─────────────────────────────────────────────
+function SecretModal({ collections, onClose, onSave, onToast, userId, editSecret }) {
+  const isEdit = !!editSecret;
   const [form, setForm] = useState({ col: collections[0]?.id || "", type: "credential", name: "", user: "", value: "", notes: "" });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(isEdit);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Si es edición, desencriptamos y pre-cargamos el formulario
+  useEffect(() => {
+    if (!isEdit) return;
+    decryptSecret(editSecret).then(dec => {
+      setForm({
+        id: editSecret.id,
+        col: editSecret.col,
+        type: editSecret.type,
+        name: editSecret.name,
+        user: dec.user || "",
+        value: dec.value || "",
+        notes: dec.notes || "",
+      });
+      setLoading(false);
+    });
+  }, []);
 
   const handleSave = async () => {
     if (!form.name.trim()) { setErr("El nombre es obligatorio"); return; }
@@ -880,7 +901,7 @@ function NewSecretModal({ collections, onClose, onSave, onToast, userId }) {
     setSaving(true);
     try {
       await saveSecret(form, userId);
-      onToast("✓ Secreto guardado y encriptado en Supabase");
+      onToast(isEdit ? "✓ Secreto actualizado" : "✓ Secreto guardado y encriptado en Supabase");
       onSave();
       onClose();
     } catch (e) {
@@ -893,8 +914,11 @@ function NewSecretModal({ collections, onClose, onSave, onToast, userId }) {
     <div className="tv-overlay" onClick={onClose}>
       <div className="tv-modal" onClick={e => e.stopPropagation()}>
         <button className="tv-modal-close" onClick={onClose}>✕</button>
-        <div className="tv-modal-title">Nuevo secreto</div>
-        <div className="tv-modal-sub">Se encriptará en tu navegador antes de guardarse en Supabase</div>
+        <div className="tv-modal-title">{isEdit ? "✏️ Editar secreto" : "Nuevo secreto"}</div>
+        <div className="tv-modal-sub">{isEdit ? "Modifica los datos. Se re-encriptará en tu navegador." : "Se encriptará en tu navegador antes de guardarse en Supabase"}</div>
+        {loading ? (
+          <div style={{ color: G.muted, fontSize: 13, padding: "20px 0" }}>Desencriptando datos...</div>
+        ) : (<>
         <div className="tv-input-row">
           <div className="tv-field">
             <div className="tv-label">Colección</div>
@@ -958,9 +982,10 @@ function NewSecretModal({ collections, onClose, onSave, onToast, userId }) {
         <div className="tv-modal-actions">
           <button className="tv-btn tv-btn-ghost" onClick={onClose} style={{ padding: "10px", width: "auto", flex: 1 }}>Cancelar</button>
           <button className="tv-btn" onClick={handleSave} disabled={saving} style={{ padding: "10px", width: "auto", flex: 2 }}>
-            {saving ? "Encriptando y guardando..." : "🔐 Guardar encriptado"}
+            {saving ? "Encriptando y guardando..." : isEdit ? "💾 Guardar cambios" : "🔐 Guardar encriptado"}
           </button>
         </div>
+        </>)}
       </div>
     </div>
   );
@@ -1023,7 +1048,7 @@ function NewCollectionModal({ onClose, onSave, onToast, userId }) {
 }
 
 // ── SECRET CARD ───────────────────────────────────────────────────────────────
-function SecretCard({ secret, collections, onSelect, onToast, onDelete, userId }) {
+function SecretCard({ secret, collections, onSelect, onEdit, onToast, onDelete, userId }) {
   const meta = TYPE_META[secret.type] || TYPE_META.api;
   const col = collections.find(c => c.id === secret.col);
 
@@ -1043,6 +1068,7 @@ function SecretCard({ secret, collections, onSelect, onToast, onDelete, userId }
           await addAudit(userId, "copy", secret.name, true);
           onToast("✓ Valor copiado");
         }}>📋</button>
+        <button className="tv-icon-btn" title="Editar" onClick={() => onEdit(secret)}>✏️</button>
         <button className="tv-icon-btn" title="Ver detalle" onClick={() => onSelect(secret)}>👁️</button>
       </div>
     </div>
@@ -1095,6 +1121,7 @@ function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [showNew, setShowNew] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   const filtered = secrets.filter(s => {
     if (filter !== "all" && s.type !== filter) return false;
@@ -1159,7 +1186,7 @@ function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId
             {search ? "No hay resultados para tu búsqueda" : "No hay secretos todavía. Crea el primero."}
           </div>
         ) : filtered.map(s => (
-          <SecretCard key={s.id} secret={s} collections={collections} onSelect={setSelected} onToast={onToast} onDelete={handleDelete} userId={userId} />
+          <SecretCard key={s.id} secret={s} collections={collections} onSelect={setSelected} onEdit={setEditing} onToast={onToast} onDelete={handleDelete} userId={userId} />
         ))}
 
         <div className="tv-bottom-grid">
@@ -1196,8 +1223,9 @@ function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId
           </div>
         </div>
       </div>
-      {selected && <DetailModal secret={selected} collections={collections} onClose={() => setSelected(null)} onDelete={handleDelete} onToast={onToast} userId={userId} />}
-      {showNew && <NewSecretModal collections={collections} onClose={() => setShowNew(false)} onSave={onRefresh} onToast={onToast} userId={userId} />}
+      {selected && <DetailModal secret={selected} collections={collections} onClose={() => setSelected(null)} onDelete={handleDelete} onEdit={setEditing} onToast={onToast} userId={userId} />}
+      {showNew && <SecretModal collections={collections} onClose={() => setShowNew(false)} onSave={onRefresh} onToast={onToast} userId={userId} />}
+      {editing && <SecretModal collections={collections} onClose={() => setEditing(null)} onSave={onRefresh} onToast={onToast} userId={userId} editSecret={editing} />}
     </>
   );
 }
@@ -1233,6 +1261,7 @@ function CollectionsPage({ collections, secrets, audit, onRefresh, onToast, user
   const [selCol, setSelCol] = useState(null);
   const [selected, setSelected] = useState(null);
   const [showNew, setShowNew] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   const colSecrets = selCol ? secrets.filter(s => s.col === selCol) : secrets;
 
@@ -1266,12 +1295,13 @@ function CollectionsPage({ collections, secrets, audit, onRefresh, onToast, user
           <div className="tv-section-title">{selCol ? collections.find(c => c.id === selCol)?.name : "Todos los secretos"} · {colSecrets.length}</div>
         </div>
         {colSecrets.map(s => (
-          <SecretCard key={s.id} secret={s} collections={collections} onSelect={setSelected} onToast={onToast} onDelete={handleDelete} userId={userId} />
+          <SecretCard key={s.id} secret={s} collections={collections} onSelect={setSelected} onEdit={setEditing} onToast={onToast} onDelete={handleDelete} userId={userId} />
         ))}
         {colSecrets.length === 0 && <div style={{ color: G.muted, fontSize: 13, padding: "32px 0", textAlign: "center" }}>Sin secretos en esta colección</div>}
       </div>
-      {selected && <DetailModal secret={selected} collections={collections} onClose={() => setSelected(null)} onDelete={handleDelete} onToast={onToast} userId={userId} />}
+      {selected && <DetailModal secret={selected} collections={collections} onClose={() => setSelected(null)} onDelete={handleDelete} onEdit={setEditing} onToast={onToast} userId={userId} />}
       {showNew && <NewCollectionModal onClose={() => setShowNew(false)} onSave={onRefresh} onToast={onToast} userId={userId} />}
+      {editing && <SecretModal collections={collections} onClose={() => setEditing(null)} onSave={onRefresh} onToast={onToast} userId={userId} editSecret={editing} />}
     </>
   );
 }
