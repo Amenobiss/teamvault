@@ -3,8 +3,16 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
+// ── LUCIDE ICONS ─────────────────────────────────────────────────────────────
+import {
+  Clipboard, Eye, EyeOff, Pencil, Trash2, X, Lock, Unlock,
+  LogOut, Fingerprint, Zap, KeyRound, Settings, FileText,
+  LayoutDashboard, FolderOpen, ClipboardList,
+  Copy, FileLock2, Save, ShieldCheck, AlertTriangle,
+} from "lucide-react";
+
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const APP_VERSION = "1.4.1";
+const APP_VERSION = "1.4.2";
 
 // ── CLIENTE SUPABASE SINGLETON ────────────────────────────────────────────────
 const supabase = createClient(
@@ -303,10 +311,10 @@ async function loadAll(userId) {
 
 // ── TYPE CONFIG ──────────────────────────────────────────────────────────────
 const TYPE_META = {
-  api:        { label: "API Key",     icon: "⚡", color: "#7C3AED", bg: "#EDE9FE" },
-  credential: { label: "Credencial",  icon: "🔑", color: "#0369A1", bg: "#E0F2FE" },
-  config:     { label: "Config",      icon: "⚙️", color: "#059669", bg: "#D1FAE5" },
-  file:       { label: "Documento",   icon: "📄", color: "#B45309", bg: "#FEF3C7" },
+  api:        { label: "API Key",    icon: <Zap      size={16} />, color: "#7C3AED", bg: "#EDE9FE" },
+  credential: { label: "Credencial", icon: <KeyRound size={16} />, color: "#0369A1", bg: "#E0F2FE" },
+  config:     { label: "Config",     icon: <Settings size={16} />, color: "#059669", bg: "#D1FAE5" },
+  file:       { label: "Documento",  icon: <FileText size={16} />, color: "#B45309", bg: "#FEF3C7" },
 };
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
@@ -941,7 +949,7 @@ function CopyBtn({ value, onToast }) {
       e.stopPropagation();
       navigator.clipboard?.writeText(value).catch(() => {});
       onToast("✓ Copiado al portapapeles");
-    }}>Copiar</button>
+    }}><Clipboard size={14} /></button>
   );
 }
 
@@ -962,7 +970,7 @@ function DetailModal({ secret, collections, onClose, onDelete, onEdit, onToast, 
       <div className="tv-modal" onClick={e => e.stopPropagation()}>
         <button className="tv-modal-close" onClick={onClose}>✕</button>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-          <div className="tv-type-icon" style={{ background: meta.bg, fontSize: 22 }}>{meta.icon}</div>
+          <div className="tv-type-icon" style={{ background: meta.bg, color: meta.color, display: "flex", alignItems: "center", justifyContent: "center" }}>{meta.icon}</div>
           <div>
             <div className="tv-modal-title" style={{ marginBottom: 2 }}>{secret.name}</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -992,11 +1000,11 @@ function DetailModal({ secret, collections, onClose, onDelete, onEdit, onToast, 
                 {/* Contraseña: oculta por defecto, revelar para copiar */}
                 <div className="tv-value-box" style={{ flex: 1, filter: revealed ? "none" : "blur(5px)", userSelect: revealed ? "auto" : "none" }}>{dec.value}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <button className="tv-icon-btn" title={revealed ? "Ocultar" : "Revelar"} onClick={() => setRevealed(r => !r)}>{revealed ? "Ocultar" : "Ver"}</button>
+                  <button className="tv-icon-btn" title={revealed ? "Ocultar" : "Revelar"} onClick={() => setRevealed(r => !r)}>{revealed ? <EyeOff size={14} /> : <Eye size={14} />}</button>
                   {revealed && <CopyBtn value={dec.value} onToast={onToast} />}
                 </div>
               </div>
-              {!revealed && <div style={{ fontSize: 11, color: G.muted, marginTop: 6 }}>Pulsa "Ver" para revelar el valor</div>}
+              {!revealed && <div style={{ fontSize: 11, color: G.muted, marginTop: 6 }}>Pulsa el ojo para revelar</div>}
             </div>
             {dec.notes && (
               <div className="tv-field">
@@ -1014,8 +1022,8 @@ function DetailModal({ secret, collections, onClose, onDelete, onEdit, onToast, 
           <div style={{ color: G.danger, fontSize: 13 }}>Error al desencriptar.</div>
         )}
         <div className="tv-modal-actions">
-          <button className="tv-btn tv-btn-danger" onClick={() => { onDelete(secret.id); onClose(); }} style={{ padding: "10px", width: "auto", flex: 1 }}>Eliminar</button>
-          <button className="tv-btn tv-btn-ghost" onClick={() => { onClose(); onEdit(secret); }} style={{ padding: "10px", width: "auto", flex: 1 }}>Editar</button>
+          <button className="tv-btn tv-btn-danger" onClick={() => { onDelete(secret.id); onClose(); }} style={{ padding: "10px", width: "auto", flex: 1 }}><Trash2 size={14} style={{display:"inline",marginRight:4}} />Eliminar</button>
+          <button className="tv-btn tv-btn-ghost" onClick={() => { onClose(); onEdit(secret); }} style={{ padding: "10px", width: "auto", flex: 1 }}><Pencil size={14} style={{display:"inline",marginRight:4}} />Editar</button>
           <button className="tv-btn tv-btn-ghost" onClick={onClose} style={{ padding: "10px", width: "auto", flex: 1 }}>Cerrar</button>
         </div>
       </div>
@@ -1069,7 +1077,7 @@ function SecretModal({ collections, onClose, onSave, onToast, userId, editSecret
     <div className="tv-overlay" onClick={onClose}>
       <div className="tv-modal" onClick={e => e.stopPropagation()}>
         <button className="tv-modal-close" onClick={onClose}>✕</button>
-        <div className="tv-modal-title">{isEdit ? "✏ Editar secreto" : "Nuevo secreto"}</div>
+        <div className="tv-modal-title">{isEdit ? <><Pencil size={16} style={{display:"inline",marginRight:6,verticalAlign:"middle"}} />Editar secreto</> : "Nuevo secreto"}</div>
         <div className="tv-modal-sub">{isEdit ? "Modifica los datos. Se re-encriptará en tu navegador." : "Se encriptará en tu navegador antes de guardarse en Supabase"}</div>
         {loading ? (
           <div style={{ color: G.muted, fontSize: 13, padding: "20px 0" }}>Desencriptando datos...</div>
@@ -1084,7 +1092,7 @@ function SecretModal({ collections, onClose, onSave, onToast, userId, editSecret
           <div className="tv-field">
             <div className="tv-label">Tipo</div>
             <select className="tv-select" value={form.type} onChange={e => set("type", e.target.value)}>
-              {Object.entries(TYPE_META).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+              {Object.entries(TYPE_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           </div>
         </div>
@@ -1125,7 +1133,7 @@ function SecretModal({ collections, onClose, onSave, onToast, userId, editSecret
                     userSelect: "none",
                   }}
                 >
-                  {form.showValue ? "Ocultar" : "Ver"}
+                  {form.showValue ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
             )}        </div>
@@ -1137,7 +1145,7 @@ function SecretModal({ collections, onClose, onSave, onToast, userId, editSecret
         <div className="tv-modal-actions">
           <button className="tv-btn tv-btn-ghost" onClick={onClose} style={{ padding: "10px", width: "auto", flex: 1 }}>Cancelar</button>
           <button className="tv-btn" onClick={handleSave} disabled={saving} style={{ padding: "10px", width: "auto", flex: 2 }}>
-            {saving ? "Encriptando y guardando..." : isEdit ? "Guardar cambios" : "Guardar encriptado"}
+            {saving ? "Encriptando y guardando..." : isEdit ? <><Save size={14} style={{display:"inline",marginRight:6}} />Guardar cambios</> : <><ShieldCheck size={14} style={{display:"inline",marginRight:6}} />Guardar encriptado</>}
           </button>
         </div>
         </>)}
@@ -1209,7 +1217,7 @@ function SecretCard({ secret, collections, onSelect, onEdit, onToast, onDelete, 
 
   return (
     <div className="tv-secret-card" onClick={() => onSelect(secret)}>
-      <div className="tv-type-icon" style={{ background: meta.bg }}>{meta.icon}</div>
+      <div className="tv-type-icon" style={{ background: meta.bg, color: meta.color, display: "flex", alignItems: "center", justifyContent: "center" }}>{meta.icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="tv-secret-name">{secret.name}</div>
         <div className="tv-secret-meta">{col ? `${col.icon} ${col.name}` : ""} · {timeAgo(secret.updated_at)}</div>
@@ -1222,9 +1230,9 @@ function SecretCard({ secret, collections, onSelect, onEdit, onToast, onDelete, 
           navigator.clipboard?.writeText(d.value || "").catch(() => {});
           await addAudit(userId, "copy", secret.name, true);
           onToast("✓ Valor copiado");
-        }}>Copiar</button>
-        <button className="tv-icon-btn" title="Editar" onClick={() => onEdit(secret)}>Editar</button>
-        <button className="tv-icon-btn" title="Ver detalle" onClick={() => onSelect(secret)}>Ver</button>
+        }}><Clipboard size={14} /></button>
+        <button className="tv-icon-btn" title="Editar" onClick={() => onEdit(secret)}><Pencil size={14} /></button>
+        <button className="tv-icon-btn" title="Ver detalle" onClick={() => onSelect(secret)}><Eye size={14} /></button>
       </div>
     </div>
   );
@@ -1300,7 +1308,7 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
           ) : (
             <>
               <button className="tv-btn" onClick={handlePasskeyUnlock} style={{ marginBottom: 10 }}>
-                Verificar identidad
+                <Fingerprint size={16} style={{display:"inline",marginRight:8}} />Verificar identidad
               </button>
               <button className="tv-btn tv-btn-ghost" onClick={onSkip} style={{ marginBottom: 6 }}>Solo ver</button>
             </>
@@ -1340,8 +1348,8 @@ function MasterKeyModal({ onUnlock, onSkip, userName }) {
             {loading
               ? "Procesando..."
               : passkeySupported && !passkeyRegistered
-                ? "Desbloquear y activar biometría"
-                : "Desbloquear"
+                ? <><Fingerprint size={14} style={{display:"inline",marginRight:6}} />Desbloquear y activar biometría</>
+                : <><Unlock size={14} style={{display:"inline",marginRight:6}} />Desbloquear</>
             }
           </button>
         </div>
@@ -1456,7 +1464,7 @@ function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId
               const count = secrets.filter(s => s.type === k).length;
               return (
                 <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${G.border}` }}>
-                  <span style={{ fontSize: 18 }}>{v.icon}</span>
+                  <span style={{ color: v.color, display: "flex", alignItems: "center" }}>{v.icon}</span>
                   <span style={{ flex: 1, fontSize: 13 }}>{v.label}</span>
                   <span style={{ fontSize: 13, fontWeight: 600, color: count > 0 ? G.text : G.muted }}>{count}</span>
                 </div>
@@ -1474,11 +1482,11 @@ function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId
 
 function AuditPage({ audit }) {
   const actIcon = {
-    read:   "ver",
-    update: "editó",
-    create: "creó",
-    delete: "eliminó",
-    copy:   "copió",
+    read:   <Eye size={14} />,
+    update: <Pencil size={14} />,
+    create: <FileLock2 size={14} />,
+    delete: <Trash2 size={14} />,
+    copy:   <Clipboard size={14} />,
   };
   return (
     <div className="tv-content">
@@ -1597,7 +1605,7 @@ function LoginScreen({ onLogin }) {
     <div className="tv-login">
       <div className="tv-login-card">
         <div className="tv-login-logo">
-          <div className="tv-login-logo-icon">🔐</div>
+          <div className="tv-login-logo-icon"><Lock size={20} color="#fff" /></div>
           <div>
             <div className="tv-login-logo-name">TeamVault</div>
             <div className="tv-login-logo-sub">Gestión segura de secretos</div>
@@ -1658,9 +1666,9 @@ export default function TeamVaultApp() {
   }, [user]);
 
   const NAV = [
-    { id: "dashboard", icon: "🏠", label: "Dashboard" },
-    { id: "collections", icon: "📁", label: "Colecciones" },
-    { id: "audit", icon: "📋", label: "Auditoría" },
+    { id: "dashboard", icon: <LayoutDashboard size={16} />, label: "Dashboard" },
+    { id: "collections", icon: <FolderOpen size={16} />, label: "Colecciones" },
+    { id: "audit", icon: <ClipboardList size={16} />, label: "Auditoría" },
   ];
 
   const navigateTo = (id) => { setPage(id); setDrawerOpen(false); };
@@ -1676,7 +1684,7 @@ export default function TeamVaultApp() {
   const NavContent = () => (
     <>
       <div className="tv-sidebar-logo">
-        <div className="tv-sidebar-logo-icon">🔐</div>
+        <div className="tv-sidebar-logo-icon"><Lock size={16} color="#fff" /></div>
         <div className="tv-sidebar-logo-txt">TeamVault</div>
       </div>
       <div className="tv-nav-section">
@@ -1698,10 +1706,10 @@ export default function TeamVaultApp() {
           </div>
         </div>
         <div className="tv-enc-badge" style={{ cursor: "pointer" }} onClick={() => { setShowMasterKey(true); setDrawerOpen(false); }}>
-          {_cryptoKey ? "🔒 AES-256-GCM activo" : "🔓 Sin clave maestra"}
+          {_cryptoKey ? <><Lock size={12} style={{display:"inline",marginRight:4}} />AES-256-GCM activo</> : <><Unlock size={12} style={{display:"inline",marginRight:4}} />Sin clave maestra</>}
         </div>
         <div className="tv-nav-item" style={{ marginTop: 6, color: G.accent }} onClick={handleSignOut}>
-          Salir
+          <LogOut size={15} style={{display:"inline",marginRight:6}} />Salir
         </div>
         <div style={{ padding: "8px 10px 0", fontSize: 10, color: G.accent, opacity: 0.5, letterSpacing: "0.04em" }}>
           v{APP_VERSION}
