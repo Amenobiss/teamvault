@@ -1731,7 +1731,7 @@ export default function TeamVaultApp() {
         <div className="tv-nav-item" style={{ marginTop: 6, color: G.accent }} onClick={handleSignOut}>
           <LogOut size={15} style={{display:"inline",marginRight:6}} />Salir
         </div>
-        <div style={{ padding: "8px 10px 0", fontSize: 10, color: G.accent, letterSpacing: "0.04em" }}>
+        <div style={{ padding: "8px 10px 0", fontSize: 10, color: "#7C5CFC", opacity: 1, letterSpacing: "0.04em" }}>
           v{APP_VERSION}
         </div>
       </div>
