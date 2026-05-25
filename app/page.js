@@ -1651,7 +1651,8 @@ export default function TeamVaultApp() {
   const [toast, setToast] = useState("");
   const [tick, setTick] = useState(0);
   const [dataReady, setDataReady] = useState(false);
-  const [showMasterKey, setShowMasterKey] = useState(false);
+  // true = vault desbloqueado y app visible; false = pantalla de clave maestra
+  const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [collections, setCollections] = useState([]);
   const [secrets, setSecrets] = useState([]);
   const [audit, setAudit] = useState([]);
@@ -1676,12 +1677,13 @@ export default function TeamVaultApp() {
   useEffect(() => {
     if (!user) return;
     setDataReady(false);
+    setVaultUnlocked(false);
+    _cryptoKey = null;
     loadAll(user.id).then(() => {
       setCollections([..._store.collections]);
       setSecrets([..._store.secrets]);
       setAudit([..._store.audit]);
       setDataReady(true);
-      if (!_cryptoKey) setShowMasterKey(true);
     });
   }, [user]);
 
@@ -1725,7 +1727,7 @@ export default function TeamVaultApp() {
             <div className="tv-avatar-role">{user.email}</div>
           </div>
         </div>
-        <div className="tv-enc-badge" style={{ cursor: "pointer" }} onClick={() => { setShowMasterKey(true); setDrawerOpen(false); }}>
+        <div className="tv-enc-badge">
           {_cryptoKey ? <><Lock size={12} style={{display:"inline",marginRight:4}} />AES-256-GCM activo</> : <><Unlock size={12} style={{display:"inline",marginRight:4}} />Sin clave maestra</>}
         </div>
         <div className="tv-nav-item" style={{ marginTop: 6, color: G.accent }} onClick={handleSignOut}>
@@ -1738,6 +1740,7 @@ export default function TeamVaultApp() {
     </>
   );
 
+  // Paso 1: sin usuario → pantalla de login Google
   if (!user) return (
     <>
       <style>{css}</style>
@@ -1747,18 +1750,25 @@ export default function TeamVaultApp() {
     </>
   );
 
+  // Paso 2: usuario logueado pero vault bloqueado → pantalla de clave maestra (full screen)
+  if (!vaultUnlocked) return (
+    <>
+      <style>{css}</style>
+      <div className="tv-root">
+        <MasterKeyModal
+          userName={user?.email || "usuario"}
+          onUnlock={() => { setVaultUnlocked(true); showToast("✓ Vault desbloqueado"); }}
+          onSkip={() => setVaultUnlocked(true)}
+        />
+      </div>
+    </>
+  );
+
+  // Paso 3: usuario logueado + vault desbloqueado → app completa
   return (
     <>
       <style>{css}</style>
       <div className="tv-root">
-        {showMasterKey && (
-          <MasterKeyModal
-            userName={user?.email || "usuario"}
-            onUnlock={() => { setShowMasterKey(false); showToast("✓ Vault desbloqueado"); }}
-            onSkip={() => setShowMasterKey(false)}
-          />
-        )}
-
         {/* Drawer móvil */}
         <div className={`tv-drawer-overlay ${drawerOpen ? "open" : ""}`} onClick={() => setDrawerOpen(false)} />
         <nav className={`tv-drawer ${drawerOpen ? "open" : ""}`}>
