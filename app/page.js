@@ -19,7 +19,7 @@ import {
 } from "@heroicons/react/24/outline";
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const APP_VERSION = "1.3";
+const APP_VERSION = "1.4";
 
 // ── CLIENTE SUPABASE SINGLETON ────────────────────────────────────────────────
 const supabase = createClient(
