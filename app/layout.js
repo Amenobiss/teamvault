@@ -17,7 +17,11 @@ export const metadata = {
   manifest: "/manifest.json",
   icons: {
     apple: "/teamvault_icon-192.png",
-    icon: "/teamvault_icon-512.png",
+    icon: [
+      { url: "/teamvault_icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/teamvault_icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    shortcut: "/teamvault_icon-192.png",
   },
   appleWebApp: {
     capable: true,
@@ -32,6 +36,13 @@ export default function RootLayout({ children }) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <link rel="manifest" href="/manifest.json?v=1.4.4" />
+        <link rel="icon" type="image/png" sizes="192x192" href="/teamvault_icon-192.png" />
+        <link rel="icon" type="image/png" sizes="512x512" href="/teamvault_icon-512.png" />
+        <link rel="shortcut icon" href="/teamvault_icon-192.png" />
+        <link rel="apple-touch-icon" href="/teamvault_icon-192.png" />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
