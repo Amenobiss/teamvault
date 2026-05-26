@@ -24,11 +24,16 @@ export async function GET() {
   );
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return Response.json({ role: "member" });
+  if (!user) return Response.json({ role: "member", debug: "no-user" });
+
+  console.log("USER EMAIL:", user.email);
+  console.log("SUPERADMIN_EMAILS raw:", process.env.SUPERADMIN_EMAILS);
+  console.log("SUPERADMIN_EMAILS parsed:", SUPERADMIN_EMAILS);
+  console.log("MATCH:", SUPERADMIN_EMAILS.includes(user.email.toLowerCase()));
 
   const role = SUPERADMIN_EMAILS.includes(user.email.toLowerCase())
     ? "superadmin"
     : "member";
 
-  return Response.json({ role });
+  return Response.json({ role, debug: { email: user.email, list: SUPERADMIN_EMAILS, match: SUPERADMIN_EMAILS.includes(user.email.toLowerCase()) } });
 }

@@ -1777,7 +1777,7 @@ export default function TeamVaultApp() {
 
   const fetchRole = useCallback(async () => {
     try {
-      const res = await fetch("/api");
+      const res = await fetch("/api/role");
       if (!res.ok) return;
       const { role } = await res.json();
       setIsSuperAdmin(role === "superadmin");
