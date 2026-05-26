@@ -239,6 +239,8 @@ async function decryptSecret(s) {
 
 async function saveSecret(data, userId) {
   if (!_cryptoKey) throw new Error("No hay clave maestra");
+  if (!data.col) throw new Error("Colección no definida");
+
   const enc_value = await crypto_engine.encrypt(data.value || "", _cryptoKey);
   const enc_user  = data.user  ? await crypto_engine.encrypt(data.user,  _cryptoKey) : null;
   const enc_notes = data.notes ? await crypto_engine.encrypt(data.notes, _cryptoKey) : null;
@@ -252,7 +254,7 @@ async function saveSecret(data, userId) {
     enc_user,
     enc_notes,
     updated_at: now,
-    created_by: userId,
+    //created_by: userId,
   };
 
   let result;
@@ -1476,7 +1478,7 @@ function MasterKeyModal({ onUnlock, userName }) {
 }
 
 // ── PAGES ─────────────────────────────────────────────────────────────────────
-function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId }) {
+function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId, isSuperAdmin }) {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
@@ -1556,6 +1558,7 @@ function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId
         ))}
 
         <div className="tv-bottom-grid">
+          {isSuperAdmin && (
           <div className="tv-panel">
             <div className="tv-panel-title">Auditoría reciente</div>
             {audit.slice(0, 6).map((a, i) => (
@@ -1574,6 +1577,7 @@ function DashboardPage({ collections, secrets, audit, onToast, onRefresh, userId
             ))}
             {audit.length === 0 && <div style={{ color: G.muted, fontSize: 12, padding: "8px 0" }}>Sin actividad todavía</div>}
           </div>
+          )}
           <div className="tv-panel">
             <div className="tv-panel-title">Por tipo</div>
             {Object.entries(TYPE_META).map(([k, v]) => {
@@ -1768,7 +1772,17 @@ export default function TeamVaultApp() {
   const [audit, setAudit] = useState([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem("tv_theme") || "dark"; } catch { return "dark"; } });
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const toastTimer = useRef(null);
+
+  const fetchRole = useCallback(async () => {
+    try {
+      const res = await fetch("/api/me");
+      if (!res.ok) return;
+      const { role } = await res.json();
+      setIsSuperAdmin(role === "superadmin");
+    } catch { /* si falla, queda como member */ }
+  }, []);
 
   // Keep G in sync with theme so all child components using G get the right colors
   G = THEMES[theme] || THEMES.dark;
@@ -1794,19 +1808,23 @@ export default function TeamVaultApp() {
     if (!user) return;
     setDataReady(false);
     setVaultUnlocked(false);
+    setIsSuperAdmin(false);
     _cryptoKey = null;
-    loadAll(user.id).then(() => {
+    Promise.all([
+      loadAll(user.id),
+      fetchRole(),
+    ]).then(() => {
       setCollections([..._store.collections]);
       setSecrets([..._store.secrets]);
       setAudit([..._store.audit]);
       setDataReady(true);
     });
-  }, [user]);
+  }, [user, fetchRole]);
 
   const NAV = [
     { id: "dashboard", icon: <LayoutDashboard size={16} />, label: "Dashboard" },
     { id: "collections", icon: <FolderOpen size={16} />, label: "Colecciones" },
-    { id: "audit", icon: <ClipboardList size={16} />, label: "Auditoría" },
+    ...(isSuperAdmin ? [{ id: "audit", icon: <ClipboardList size={16} />, label: "Auditoría" }] : []),
   ];
 
   const navigateTo = (id) => { setPage(id); setDrawerOpen(false); };
@@ -1922,9 +1940,9 @@ export default function TeamVaultApp() {
               </div>
             ) : (
               <>
-                {page === "dashboard" && <DashboardPage key={tick} collections={collections} secrets={secrets} audit={audit} onToast={showToast} onRefresh={refresh} userId={user.id} />}
+                {page === "dashboard" && <DashboardPage key={tick} collections={collections} secrets={secrets} audit={audit} onToast={showToast} onRefresh={refresh} userId={user.id} isSuperAdmin={isSuperAdmin} />}
                 {page === "collections" && <CollectionsPage key={tick} collections={collections} secrets={secrets} audit={audit} onRefresh={refresh} onToast={showToast} userId={user.id} />}
-                {page === "audit" && <AuditPage key={tick} audit={audit} />}
+                {page === "audit" && isSuperAdmin && <AuditPage key={tick} audit={audit} />}
               </>
             )}
           </main>
