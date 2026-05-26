@@ -3,7 +3,7 @@
   "short_name": "TeamVault",
   "description": "Gestión segura de Claves CTCD Jaen",
   "start_url": "/",
-  "version": "1.4.4"
+  "version": "1.4.4",
   "display": "standalone",
   "background_color": "#0F0F13",
   "theme_color": "#7C5CFC",
