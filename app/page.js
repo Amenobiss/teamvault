@@ -356,32 +356,55 @@ function mask(val) {
 }
 
 // ── STYLES ──────────────────────────────────────────────────────────────────
-const G = {
-  bg: "#0F0F13",
-  surface: "#18181F",
-  surface2: "#1E1E28",
-  surface3: "#252530",
-  border: "rgba(255,255,255,0.07)",
-  border2: "rgba(255,255,255,0.12)",
-  text: "#F0EEF8",
-  muted: "#8B8A9E",
-  accent: "#7C5CFC",
-  accentDim: "rgba(124,92,252,0.15)",
-  accentBorder: "rgba(124,92,252,0.4)",
-  danger: "#EF4444",
-  success: "#10B981",
-  warn: "#F59E0B",
+const THEMES = {
+  dark: {
+    bg: "#0F0F13",
+    surface: "#18181F",
+    surface2: "#1E1E28",
+    surface3: "#252530",
+    border: "rgba(255,255,255,0.07)",
+    border2: "rgba(255,255,255,0.12)",
+    text: "#F0EEF8",
+    muted: "#8B8A9E",
+    accent: "#7C5CFC",
+    accentDim: "rgba(124,92,252,0.15)",
+    accentBorder: "rgba(124,92,252,0.4)",
+    danger: "#EF4444",
+    success: "#10B981",
+    warn: "#F59E0B",
+  },
+  light: {
+    bg: "#F4F3FA",
+    surface: "#FFFFFF",
+    surface2: "#F0EFF8",
+    surface3: "#E8E7F3",
+    border: "rgba(0,0,0,0.08)",
+    border2: "rgba(0,0,0,0.14)",
+    text: "#1A1826",
+    muted: "#6B6880",
+    accent: "#7C5CFC",
+    accentDim: "rgba(124,92,252,0.10)",
+    accentBorder: "rgba(124,92,252,0.35)",
+    danger: "#DC2626",
+    success: "#059669",
+    warn: "#D97706",
+  },
 };
 
-const css = `
+// G starts as dark (default); replaced at runtime by themed components
+let G = THEMES.dark;
+
+function makeCSS(theme) {
+  const T = THEMES[theme] || THEMES.dark;
+  return `
   @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Outfit:wght@300;400;500;600;700&display=swap');
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   .tv-root {
     font-family: 'Outfit', sans-serif;
-    background: ${G.bg};
-    color: ${G.text};
+    background: ${T.bg};
+    color: ${T.text};
     min-height: 100vh;
     font-size: 14px;
     line-height: 1.5;
@@ -390,7 +413,7 @@ const css = `
   /* scrollbar */
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: ${G.border2}; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb { background: ${T.border2}; border-radius: 99px; }
 
   /* login */
   .tv-login {
@@ -398,7 +421,7 @@ const css = `
     display: flex;
     align-items: center;
     justify-content: center;
-    background: ${G.bg};
+    background: ${T.bg};
     position: relative;
     overflow: hidden;
   }
@@ -411,13 +434,18 @@ const css = `
     pointer-events: none;
   }
   .tv-login-card {
-    background: ${G.surface};
-    border: 1px solid ${G.border2};
+    background: ${T.surface};
+    border: 1px solid ${T.border2};
     border-radius: 20px;
     padding: 48px 40px;
-    width: 380px;
+    width: 100%;
+    max-width: 380px;
     position: relative;
     z-index: 1;
+  }
+  @media (max-width: 440px) {
+    .tv-login { padding: 16px; align-items: flex-start; padding-top: 40px; }
+    .tv-login-card { padding: 32px 20px; border-radius: 16px; }
   }
   .tv-login-logo {
     display: flex; align-items: center; gap: 10px;
@@ -425,7 +453,7 @@ const css = `
   }
   .tv-login-logo-icon {
     width: 40px; height: 40px;
-    background: ${G.accent};
+    background: ${T.accent};
     border-radius: 10px;
     display: flex; align-items: center; justify-content: center;
     font-size: 20px;
@@ -434,29 +462,29 @@ const css = `
     font-size: 20px; font-weight: 700; letter-spacing: -0.3px;
   }
   .tv-login-logo-sub {
-    font-size: 11px; color: ${G.muted}; font-weight: 400;
+    font-size: 11px; color: ${T.muted}; font-weight: 400;
   }
   .tv-login h2 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
-  .tv-login p { color: ${G.muted}; font-size: 13px; margin-bottom: 28px; }
+  .tv-login p { color: ${T.muted}; font-size: 13px; margin-bottom: 28px; }
   .tv-field { margin-bottom: 14px; }
-  .tv-label { font-size: 12px; color: ${G.muted}; margin-bottom: 6px; font-weight: 500; letter-spacing: 0.02em; }
+  .tv-label { font-size: 12px; color: ${T.muted}; margin-bottom: 6px; font-weight: 500; letter-spacing: 0.02em; }
   .tv-input {
     width: 100%;
-    background: ${G.surface2};
-    border: 1px solid ${G.border2};
+    background: ${T.surface2};
+    border: 1px solid ${T.border2};
     border-radius: 10px;
     padding: 10px 14px;
-    color: ${G.text};
+    color: ${T.text};
     font-family: 'Outfit', sans-serif;
     font-size: 14px;
     outline: none;
     transition: border-color 0.15s;
   }
-  .tv-input:focus { border-color: ${G.accent}; }
-  .tv-input::placeholder { color: ${G.muted}; }
+  .tv-input:focus { border-color: ${T.accent}; }
+  .tv-input::placeholder { color: ${T.muted}; }
   .tv-btn {
     width: 100%;
-    background: ${G.accent};
+    background: ${T.accent};
     color: #fff;
     border: none;
     border-radius: 10px;
@@ -471,29 +499,53 @@ const css = `
   .tv-btn:hover { opacity: 0.9; }
   .tv-btn:active { transform: scale(0.98); }
   .tv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .tv-btn-ghost {
-    background: ${G.surface2};
-    border: 1px solid ${G.border2};
-    color: ${G.text};
+
+  /* Google sign-in button - official style */
+  .tv-btn-google {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: #fff;
+    color: #3c4043;
+    border: 1px solid #dadce0;
+    border-radius: 10px;
+    padding: 11px 16px;
+    font-family: 'Roboto', 'Outfit', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, box-shadow 0.15s;
+    margin-top: 6px;
+    letter-spacing: 0.01em;
   }
-  .tv-btn-ghost:hover { background: ${G.surface3}; opacity: 1; }
+  .tv-btn-google:hover { background: #f8f9fa; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+  .tv-btn-google:active { background: #f1f3f4; }
+  .tv-btn-google:disabled { opacity: 0.6; cursor: not-allowed; }
+  .tv-btn-ghost {
+    background: ${T.surface2};
+    border: 1px solid ${T.border2};
+    color: ${T.text};
+  }
+  .tv-btn-ghost:hover { background: ${T.surface3}; opacity: 1; }
   .tv-btn-danger {
     background: rgba(239,68,68,0.15);
     border: 1px solid rgba(239,68,68,0.3);
-    color: ${G.danger};
+    color: ${T.danger};
   }
   .tv-btn-danger:hover { background: rgba(239,68,68,0.25); opacity:1; }
 
   .tv-hint {
-    font-size: 11px; color: ${G.muted};
-    background: ${G.surface2};
-    border: 1px solid ${G.border};
+    font-size: 11px; color: ${T.muted};
+    background: ${T.surface2};
+    border: 1px solid ${T.border};
     border-radius: 8px;
     padding: 10px 12px;
     margin-top: 16px;
     line-height: 1.6;
   }
-  .tv-hint strong { color: ${G.text}; }
+  .tv-hint strong { color: ${T.text}; }
 
   /* layout */
   .tv-layout { display: flex; height: 100vh; overflow: hidden; max-width: 100vw; }
@@ -502,8 +554,8 @@ const css = `
   .tv-sidebar {
     width: 220px;
     flex-shrink: 0;
-    background: ${G.surface};
-    border-right: 1px solid ${G.border};
+    background: ${T.surface};
+    border-right: 1px solid ${T.border};
     display: flex;
     flex-direction: column;
     padding: 20px 0;
@@ -512,35 +564,35 @@ const css = `
   .tv-sidebar-logo {
     display: flex; align-items: center; gap: 9px;
     padding: 0 18px 20px;
-    border-bottom: 1px solid ${G.border};
+    border-bottom: 1px solid ${T.border};
     margin-bottom: 12px;
   }
   .tv-sidebar-logo-icon {
     width: 32px; height: 32px;
-    background: ${G.accent};
+    background: ${T.accent};
     border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
     font-size: 16px;
   }
   .tv-sidebar-logo-txt { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
   .tv-nav-section { padding: 0 10px; margin-bottom: 4px; }
-  .tv-nav-label { font-size: 10px; color: ${G.muted}; letter-spacing: 0.08em; font-weight: 600; padding: 8px 8px 4px; text-transform: uppercase; }
+  .tv-nav-label { font-size: 10px; color: ${T.muted}; letter-spacing: 0.08em; font-weight: 600; padding: 8px 8px 4px; text-transform: uppercase; }
   .tv-nav-item {
     display: flex; align-items: center; gap: 9px;
     padding: 8px 10px;
     border-radius: 8px;
     cursor: pointer;
-    color: ${G.muted};
+    color: ${T.muted};
     font-size: 13px; font-weight: 500;
     transition: all 0.12s;
     margin-bottom: 1px;
   }
-  .tv-nav-item:hover { background: ${G.surface2}; color: ${G.text}; }
-  .tv-nav-item.active { background: ${G.accentDim}; color: ${G.text}; }
+  .tv-nav-item:hover { background: ${T.surface2}; color: ${T.text}; }
+  .tv-nav-item.active { background: ${T.accentDim}; color: ${T.text}; }
   .tv-nav-item .nav-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
   .tv-nav-badge {
     margin-left: auto;
-    background: ${G.accent};
+    background: ${T.accent};
     color: #fff;
     font-size: 10px;
     font-weight: 600;
@@ -552,7 +604,7 @@ const css = `
   .tv-sidebar-bottom {
     margin-top: auto;
     padding: 12px 10px 0;
-    border-top: 1px solid ${G.border};
+    border-top: 1px solid ${T.border};
   }
   .tv-user-chip {
     display: flex; align-items: center; gap: 9px;
@@ -563,13 +615,13 @@ const css = `
   .tv-avatar {
     width: 28px; height: 28px;
     border-radius: 50%;
-    background: ${G.accent};
+    background: ${T.accent};
     display: flex; align-items: center; justify-content: center;
     font-size: 11px; font-weight: 700;
     flex-shrink: 0;
   }
   .tv-avatar-name { font-size: 12px; font-weight: 500; }
-  .tv-avatar-role { font-size: 10px; color: ${G.muted}; }
+  .tv-avatar-role { font-size: 10px; color: ${T.muted}; }
   .tv-enc-badge {
     display: flex; align-items: center; gap: 6px;
     padding: 8px 10px;
@@ -578,7 +630,7 @@ const css = `
     border: 1px solid rgba(16,185,129,0.2);
     border-radius: 8px;
     font-size: 11px;
-    color: ${G.success};
+    color: ${T.success};
   }
 
   /* main */
@@ -593,19 +645,19 @@ const css = `
   .tv-search {
     flex: 1;
     display: flex; align-items: center; gap: 8px;
-    background: ${G.surface};
-    border: 1px solid ${G.border2};
+    background: ${T.surface};
+    border: 1px solid ${T.border2};
     border-radius: 10px;
     padding: 9px 14px;
     transition: border-color 0.15s;
   }
-  .tv-search:focus-within { border-color: ${G.accentBorder}; }
+  .tv-search:focus-within { border-color: ${T.accentBorder}; }
   .tv-search input {
     background: none; border: none; outline: none;
-    color: ${G.text}; font-family: 'Outfit', sans-serif; font-size: 13px;
+    color: ${T.text}; font-family: 'Outfit', sans-serif; font-size: 13px;
     flex: 1; min-width: 0;
   }
-  .tv-search input::placeholder { color: ${G.muted}; }
+  .tv-search input::placeholder { color: ${T.muted}; }
   .tv-topbar-btn {
     display: flex; align-items: center; gap: 7px;
     padding: 8px 16px;
@@ -617,7 +669,7 @@ const css = `
     white-space: nowrap;
   }
   .tv-topbar-btn-primary {
-    background: ${G.accent};
+    background: ${T.accent};
     color: #fff;
   }
   .tv-topbar-btn-primary:hover { opacity: 0.88; }
@@ -628,14 +680,14 @@ const css = `
   /* stats */
   .tv-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
   .tv-stat {
-    background: ${G.surface};
-    border: 1px solid ${G.border};
+    background: ${T.surface};
+    border: 1px solid ${T.border};
     border-radius: 12px;
     padding: 16px;
   }
-  .tv-stat-label { font-size: 11px; color: ${G.muted}; margin-bottom: 6px; font-weight: 500; }
+  .tv-stat-label { font-size: 11px; color: ${T.muted}; margin-bottom: 6px; font-weight: 500; }
   .tv-stat-val { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
-  .tv-stat-sub { font-size: 11px; color: ${G.muted}; margin-top: 3px; }
+  .tv-stat-sub { font-size: 11px; color: ${T.muted}; margin-top: 3px; }
 
   /* filters */
   .tv-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -643,26 +695,26 @@ const css = `
     display: flex; align-items: center; gap: 5px;
     padding: 5px 12px;
     border-radius: 99px;
-    border: 1px solid ${G.border2};
+    border: 1px solid ${T.border2};
     background: transparent;
-    color: ${G.muted};
+    color: ${T.muted};
     font-family: 'Outfit', sans-serif;
     font-size: 12px; font-weight: 500;
     cursor: pointer;
     transition: all 0.12s;
   }
-  .tv-chip:hover { border-color: ${G.accent}; color: ${G.text}; }
-  .tv-chip.active { background: ${G.accentDim}; border-color: ${G.accentBorder}; color: ${G.text}; }
+  .tv-chip:hover { border-color: ${T.accent}; color: ${T.text}; }
+  .tv-chip.active { background: ${T.accentDim}; border-color: ${T.accentBorder}; color: ${T.text}; }
 
   /* section header */
   .tv-section-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-  .tv-section-title { font-size: 13px; font-weight: 600; color: ${G.muted}; letter-spacing: 0.04em; text-transform: uppercase; }
+  .tv-section-title { font-size: 13px; font-weight: 600; color: ${T.muted}; letter-spacing: 0.04em; text-transform: uppercase; }
 
   /* secret cards */
   .tv-secret-card {
     display: flex; align-items: center; gap: 14px;
-    background: ${G.surface};
-    border: 1px solid ${G.border};
+    background: ${T.surface};
+    border: 1px solid ${T.border};
     border-radius: 12px;
     padding: 14px 16px;
     margin-bottom: 6px;
@@ -671,8 +723,8 @@ const css = `
     position: relative;
     overflow: hidden;
   }
-  .tv-secret-card:hover { border-color: ${G.border2}; background: ${G.surface2}; }
-  .tv-secret-card.selected { border-color: ${G.accentBorder}; background: ${G.accentDim}; }
+  .tv-secret-card:hover { border-color: ${T.border2}; background: ${T.surface2}; }
+  .tv-secret-card.selected { border-color: ${T.accentBorder}; background: ${T.accentDim}; }
   .tv-type-icon {
     width: 36px; height: 36px;
     border-radius: 9px;
@@ -681,7 +733,7 @@ const css = `
     flex-shrink: 0;
   }
   .tv-secret-name { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tv-secret-meta { font-size: 11px; color: ${G.muted}; margin-top: 2px; }
+  .tv-secret-meta { font-size: 11px; color: ${T.muted}; margin-top: 2px; }
   .tv-type-badge {
     font-size: 10px; font-weight: 600;
     padding: 3px 9px;
@@ -690,8 +742,8 @@ const css = `
   }
   .tv-masked {
     font-family: 'DM Mono', monospace;
-    font-size: 12px; color: ${G.muted};
-    background: ${G.surface2};
+    font-size: 12px; color: ${T.muted};
+    background: ${T.surface2};
     padding: 4px 10px;
     border-radius: 6px;
     flex-shrink: 0;
@@ -703,49 +755,49 @@ const css = `
   .tv-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
   .tv-icon-btn {
     width: 30px; height: 30px;
-    background: ${G.surface2};
-    border: 1px solid ${G.border2};
+    background: ${T.surface2};
+    border: 1px solid ${T.border2};
     border-radius: 7px;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
-    color: ${G.muted};
+    color: ${T.muted};
     font-size: 14px;
     transition: all 0.12s;
     flex-shrink: 0;
   }
-  .tv-icon-btn:hover { background: ${G.surface3}; color: ${G.text}; border-color: ${G.border2}; }
+  .tv-icon-btn:hover { background: ${T.surface3}; color: ${T.text}; border-color: ${T.border2}; }
 
   /* bottom grid */
   .tv-bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 20px; }
   .tv-panel {
-    background: ${G.surface};
-    border: 1px solid ${G.border};
+    background: ${T.surface};
+    border: 1px solid ${T.border};
     border-radius: 12px;
     padding: 16px;
   }
-  .tv-panel-title { font-size: 12px; font-weight: 600; color: ${G.muted}; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+  .tv-panel-title { font-size: 12px; font-weight: 600; color: ${T.muted}; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
   .tv-member-row {
     display: flex; align-items: center; gap: 10px;
     padding: 7px 0;
-    border-bottom: 1px solid ${G.border};
+    border-bottom: 1px solid ${T.border};
   }
   .tv-member-row:last-child { border-bottom: none; }
   .tv-member-name { font-size: 13px; font-weight: 500; flex: 1; }
   .tv-role { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
   .tv-role-admin { background: rgba(124,92,252,0.15); color: #A78BFA; }
   .tv-role-editor { background: rgba(3,105,161,0.15); color: #60A5FA; }
-  .tv-role-viewer { background: rgba(255,255,255,0.06); color: ${G.muted}; }
+  .tv-role-viewer { background: rgba(255,255,255,0.06); color: ${T.muted}; }
 
   .tv-audit-row {
     display: flex; align-items: flex-start; gap: 10px;
     padding: 7px 0;
-    border-bottom: 1px solid ${G.border};
+    border-bottom: 1px solid ${T.border};
   }
   .tv-audit-row:last-child { border-bottom: none; }
   .tv-audit-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
-  .tv-audit-text { font-size: 12px; color: ${G.muted}; line-height: 1.5; }
-  .tv-audit-user { color: ${G.text}; font-weight: 600; }
-  .tv-audit-time { font-size: 10px; color: ${G.muted}; margin-top: 2px; }
+  .tv-audit-text { font-size: 12px; color: ${T.muted}; line-height: 1.5; }
+  .tv-audit-user { color: ${T.text}; font-weight: 600; }
+  .tv-audit-time { font-size: 10px; color: ${T.muted}; margin-top: 2px; }
 
   /* modal overlay */
   .tv-overlay {
@@ -756,8 +808,8 @@ const css = `
     padding: 20px;
   }
   .tv-modal {
-    background: ${G.surface};
-    border: 1px solid ${G.border2};
+    background: ${T.surface};
+    border: 1px solid ${T.border2};
     border-radius: 16px;
     width: 100%;
     max-width: 520px;
@@ -767,27 +819,27 @@ const css = `
     position: relative;
   }
   .tv-modal-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
-  .tv-modal-sub { font-size: 13px; color: ${G.muted}; margin-bottom: 22px; }
+  .tv-modal-sub { font-size: 13px; color: ${T.muted}; margin-bottom: 22px; }
   .tv-modal-close {
     position: absolute; top: 20px; right: 20px;
-    background: ${G.surface2}; border: 1px solid ${G.border2};
+    background: ${T.surface2}; border: 1px solid ${T.border2};
     border-radius: 7px; width: 30px; height: 30px;
     display: flex; align-items: center; justify-content: center;
-    cursor: pointer; color: ${G.muted}; font-size: 16px;
+    cursor: pointer; color: ${T.muted}; font-size: 16px;
   }
-  .tv-modal-close:hover { color: ${G.text}; }
+  .tv-modal-close:hover { color: ${T.text}; }
   .tv-modal-actions { display: flex; gap: 10px; margin-top: 24px; }
   .tv-modal-actions .tv-btn { width: auto; flex: 1; padding: 10px; }
 
   /* detail view value */
   .tv-value-box {
-    background: ${G.surface2};
-    border: 1px solid ${G.border2};
+    background: ${T.surface2};
+    border: 1px solid ${T.border2};
     border-radius: 10px;
     padding: 12px 14px;
     font-family: 'DM Mono', monospace;
     font-size: 13px;
-    color: ${G.text};
+    color: ${T.text};
     word-break: break-all;
     white-space: pre-wrap;
     max-height: 200px;
@@ -798,35 +850,35 @@ const css = `
 
   .tv-select {
     width: 100%;
-    background: ${G.surface2};
-    border: 1px solid ${G.border2};
+    background: ${T.surface2};
+    border: 1px solid ${T.border2};
     border-radius: 10px;
     padding: 10px 14px;
-    color: ${G.text};
+    color: ${T.text};
     font-family: 'Outfit', sans-serif;
     font-size: 14px;
     outline: none;
     appearance: none;
   }
-  .tv-select:focus { border-color: ${G.accent}; }
+  .tv-select:focus { border-color: ${T.accent}; }
   .tv-textarea {
     width: 100%;
-    background: ${G.surface2};
-    border: 1px solid ${G.border2};
+    background: ${T.surface2};
+    border: 1px solid ${T.border2};
     border-radius: 10px;
     padding: 10px 14px;
-    color: ${G.text};
+    color: ${T.text};
     font-family: 'DM Mono', monospace;
     font-size: 13px;
     outline: none;
     resize: vertical;
     min-height: 100px;
   }
-  .tv-textarea:focus { border-color: ${G.accent}; }
+  .tv-textarea:focus { border-color: ${T.accent}; }
 
   .tv-copy-toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    background: ${G.success};
+    background: ${T.success};
     color: #fff;
     padding: 10px 20px;
     border-radius: 99px;
@@ -839,33 +891,33 @@ const css = `
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
   }
 
-  .tv-error { color: ${G.danger}; font-size: 12px; margin-top: 6px; }
-  .tv-divider { border: none; border-top: 1px solid ${G.border}; margin: 16px 0; }
+  .tv-error { color: ${T.danger}; font-size: 12px; margin-top: 6px; }
+  .tv-divider { border: none; border-top: 1px solid ${T.border}; margin: 16px 0; }
   .tv-input-row { display: flex; gap: 10px; }
   .tv-input-row .tv-field { flex: 1; }
 
   /* collections view */
   .tv-col-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
   .tv-col-card {
-    background: ${G.surface};
-    border: 1px solid ${G.border};
+    background: ${T.surface};
+    border: 1px solid ${T.border};
     border-radius: 12px;
     padding: 16px;
     cursor: pointer;
     transition: all 0.12s;
   }
-  .tv-col-card:hover { border-color: ${G.border2}; }
-  .tv-col-card.selected { border-color: ${G.accentBorder}; background: ${G.accentDim}; }
+  .tv-col-card:hover { border-color: ${T.border2}; }
+  .tv-col-card.selected { border-color: ${T.accentBorder}; background: ${T.accentDim}; }
   .tv-col-icon { font-size: 28px; margin-bottom: 8px; }
   .tv-col-name { font-size: 14px; font-weight: 600; }
-  .tv-col-count { font-size: 11px; color: ${G.muted}; margin-top: 2px; }
+  .tv-col-count { font-size: 11px; color: ${T.muted}; margin-top: 2px; }
 
   /* audit page */
   .tv-audit-full-row {
     display: flex; align-items: center; gap: 12px;
     padding: 10px 14px;
-    background: ${G.surface};
-    border: 1px solid ${G.border};
+    background: ${T.surface};
+    border: 1px solid ${T.border};
     border-radius: 10px;
     margin-bottom: 6px;
   }
@@ -875,11 +927,11 @@ const css = `
     display: none;
     align-items: center; justify-content: center;
     width: 36px; height: 36px;
-    background: ${G.surface};
-    border: 1px solid ${G.border2};
+    background: ${T.surface};
+    border: 1px solid ${T.border2};
     border-radius: 9px;
     cursor: pointer;
-    color: ${G.text};
+    color: ${T.text};
     flex-shrink: 0;
   }
   .tv-drawer-overlay {
@@ -892,8 +944,8 @@ const css = `
   .tv-drawer {
     position: fixed; top: 0; left: 0; bottom: 0;
     width: 260px;
-    background: ${G.surface};
-    border-right: 1px solid ${G.border2};
+    background: ${T.surface};
+    border-right: 1px solid ${T.border2};
     z-index: 201;
     display: flex; flex-direction: column;
     padding: 20px 0;
@@ -955,8 +1007,26 @@ const css = `
 
     /* audit rows wrap */
     .tv-audit-full-row { flex-wrap: wrap; }
+  /* theme toggle */
+  .tv-theme-toggle {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: ${T.muted};
+    font-size: 12px; font-weight: 500;
+    background: ${T.surface2};
+    border: 1px solid ${T.border2};
+    font-family: 'Outfit', sans-serif;
+    transition: all 0.12s;
+    width: 100%;
+    margin-top: 6px;
+  }
+  .tv-theme-toggle:hover { color: ${T.text}; border-color: ${T.accent}; }
+
   }
 `;
+}
 
 // ── COMPONENTS ───────────────────────────────────────────────────────────────
 
@@ -1305,7 +1375,7 @@ function MasterKeyModal({ onUnlock, userName }) {
     try {
       const ok = await initCrypto(master);
       if (!ok) {
-        setErr("❌ Contraseña incorrecta. No puedes acceder al vault.");
+        setErr("❌ Contraseña incorrecta. No puede acceder al vault.");
         setLoading(false);
         return;
       }
@@ -1668,8 +1738,16 @@ function LoginScreen({ onLogin }) {
           Usa tu cuenta Google del equipo para entrar
         </p>
         {err && <div className="tv-error" style={{ marginBottom: 12 }}>{err}</div>}
-        <button className="tv-btn" onClick={handleGoogle} disabled={loading}>
-          {loading ? "Redirigiendo a Google..." : "🔵 Entrar con Google"}
+        <button className="tv-btn-google" onClick={handleGoogle} disabled={loading}>
+          {!loading && (
+            <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+              <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+              <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+              <path d="M3.964 10.707A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/>
+              <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+            </svg>
+          )}
+          <span>{loading ? "Redirigiendo a Google..." : "Continuar con Google"}</span>
         </button>
       </div>
     </div>
@@ -1689,7 +1767,13 @@ export default function TeamVaultApp() {
   const [secrets, setSecrets] = useState([]);
   const [audit, setAudit] = useState([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [theme, setTheme] = useState(() => { try { return localStorage.getItem("tv_theme") || "dark"; } catch { return "dark"; } });
   const toastTimer = useRef(null);
+
+  // Keep G in sync with theme so all child components using G get the right colors
+  G = THEMES[theme] || THEMES.dark;
+  const css = makeCSS(theme);
+  const toggleTheme = () => setTheme(t => { const next = t === "dark" ? "light" : "dark"; try { localStorage.setItem("tv_theme", next); } catch {} return next; });
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -1762,6 +1846,9 @@ export default function TeamVaultApp() {
         <div className="tv-enc-badge">
           {_cryptoKey ? <><Lock size={12} style={{display:"inline",marginRight:4}} />AES-256-GCM activo</> : <><Unlock size={12} style={{display:"inline",marginRight:4}} />Sin clave maestra</>}
         </div>
+        <button className="tv-theme-toggle" onClick={toggleTheme}>
+          {theme === "dark" ? "☀ Modo claro" : "🌙 Modo oscuro"}
+        </button>
         <div className="tv-nav-item" style={{ marginTop: 6, color: G.accent }} onClick={handleSignOut}>
           <LogOut size={15} style={{display:"inline",marginRight:6}} />Salir
         </div>
