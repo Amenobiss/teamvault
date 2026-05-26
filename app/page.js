@@ -455,10 +455,8 @@ function makeCSS(theme) {
   }
   .tv-login-logo-icon {
     width: 40px; height: 40px;
-    background: ${T.accent};
     border-radius: 10px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 20px;
+    overflow: hidden;
   }
   .tv-login-logo-name {
     font-size: 20px; font-weight: 700; letter-spacing: -0.3px;
@@ -570,11 +568,9 @@ function makeCSS(theme) {
     margin-bottom: 12px;
   }
   .tv-sidebar-logo-icon {
-    width: 32px; height: 32px;
-    background: ${T.accent};
-    border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px;
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    overflow: hidden;
   }
   .tv-sidebar-logo-txt { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
   .tv-nav-section { padding: 0 10px; margin-bottom: 4px; }
@@ -1731,7 +1727,9 @@ function LoginScreen({ onLogin }) {
     <div className="tv-login">
       <div className="tv-login-card">
         <div className="tv-login-logo">
-          <div className="tv-login-logo-icon"><Lock size={20} color="#fff" /></div>
+          <div className="tv-login-logo-icon">
+            <img src="/teamvault_icon-192.png" alt="TeamVault" style={{ width: 40, height: 40, borderRadius: 10 }} />
+          </div>
           <div>
             <div className="tv-login-logo-name">TeamVault</div>
             <div className="tv-login-logo-sub">Gestión segura de secretos</div>
@@ -1844,7 +1842,9 @@ export default function TeamVaultApp() {
   const NavContent = () => (
     <>
       <div className="tv-sidebar-logo">
-        <div className="tv-sidebar-logo-icon"><Lock size={16} color="#fff" /></div>
+        <div className="tv-sidebar-logo-icon">
+          <img src="/teamvault_icon-192.png" alt="TeamVault" style={{ width: 28, height: 28, borderRadius: 7 }} />
+        </div>
         <div className="tv-sidebar-logo-txt">TeamVault</div>
       </div>
       <div className="tv-nav-section">
