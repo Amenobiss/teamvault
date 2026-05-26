@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const APP_VERSION = "1.4.3";
+const APP_VERSION = "1.4.4";
 
 // ── CLIENTE SUPABASE SINGLETON ────────────────────────────────────────────────
 const supabase = createClient(
@@ -1777,7 +1777,11 @@ export default function TeamVaultApp() {
 
   const fetchRole = useCallback(async () => {
     try {
-      const res = await fetch("/api/role");
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch("/api/role", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
       if (!res.ok) return;
       const { role } = await res.json();
       setIsSuperAdmin(role === "superadmin");
